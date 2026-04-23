@@ -6,11 +6,14 @@ export interface LinkMetadata {
   url?: string;
 }
 
+export type GeoVariants = Record<string, string>;
+
 export interface Link {
   slug: string;
   url: string;
   createdAt: number;
   expiresAt?: number;
+  geo?: GeoVariants;
 }
 
 export interface ListResult {
@@ -22,6 +25,31 @@ export interface ListResult {
 // for JSON-escape overhead on URLs that contain characters like quotes.
 const KV_METADATA_LIMIT = 1024;
 const KV_METADATA_MARGIN = 16;
+
+interface StoredEnvelope {
+  u: string;
+  g: GeoVariants;
+}
+
+function serializeValue(url: string, geo: GeoVariants | undefined): string {
+  if (!geo || Object.keys(geo).length === 0) return url;
+  const envelope: StoredEnvelope = { u: url, g: geo };
+  return JSON.stringify(envelope);
+}
+
+function parseValue(value: string): { url: string; geo?: GeoVariants } {
+  if (value.length > 0 && value[0] === "{") {
+    try {
+      const parsed = JSON.parse(value) as Partial<StoredEnvelope>;
+      if (typeof parsed.u === "string" && parsed.g && typeof parsed.g === "object") {
+        return { url: parsed.u, geo: parsed.g };
+      }
+    } catch {
+      // Not a JSON envelope — fall through to raw URL.
+    }
+  }
+  return { url: value };
+}
 
 function buildMetadata(
   createdAt: number,
@@ -42,9 +70,11 @@ export class LinkStore {
       slug,
     );
     if (value === null) return null;
+    const { url, geo } = parseValue(value);
     return {
       slug,
-      url: value,
+      url,
+      geo,
       createdAt: metadata?.createdAt ?? 0,
       expiresAt: metadata?.expiresAt,
     };
@@ -55,15 +85,28 @@ export class LinkStore {
     return value !== null;
   }
 
-  async put(slug: string, url: string, expiresIn?: number): Promise<Link> {
+  async put(
+    slug: string,
+    url: string,
+    expiresIn?: number,
+    geo?: GeoVariants,
+  ): Promise<Link> {
     const now = Date.now();
     const expiresAt = expiresIn ? now + expiresIn * 1000 : undefined;
+    const hasGeo = geo !== undefined && Object.keys(geo).length > 0;
     const metadata = buildMetadata(now, expiresAt, url);
-    await this.kv.put(slug, url, {
+    const storedValue = serializeValue(url, geo);
+    await this.kv.put(slug, storedValue, {
       metadata,
       ...(expiresIn ? { expirationTtl: expiresIn } : {}),
     });
-    return { slug, url, createdAt: now, expiresAt };
+    return {
+      slug,
+      url,
+      createdAt: now,
+      expiresAt,
+      ...(hasGeo ? { geo } : {}),
+    };
   }
 
   async delete(slug: string): Promise<void> {
@@ -79,7 +122,11 @@ export class LinkStore {
     const links: Link[] = await Promise.all(
       result.keys.map(async (key) => {
         const embedded = key.metadata?.url;
-        const url = embedded ?? (await this.kv.get(key.name)) ?? "";
+        let url = embedded;
+        if (url === undefined) {
+          const raw = (await this.kv.get(key.name)) ?? "";
+          url = parseValue(raw).url;
+        }
         return {
           slug: key.name,
           url,

@@ -123,4 +123,49 @@ describe("LinkService", () => {
       LinkNotFoundError,
     );
   });
+
+  test("create accepts geo variants and normalizes country codes", async () => {
+    const link = await service.create({
+      url: "https://example.com",
+      slug: "abc",
+      geo: { us: "https://example.com/en", JP: "https://example.com/ja" },
+    });
+    expect(link.geo).toEqual({
+      US: "https://example.com/en",
+      JP: "https://example.com/ja",
+    });
+  });
+
+  test("create rejects invalid country code", async () => {
+    await expect(
+      service.create({
+        url: "https://example.com",
+        geo: { USA: "https://example.com/en" },
+      }),
+    ).rejects.toBeInstanceOf(LinkValidationError);
+    await expect(
+      service.create({
+        url: "https://example.com",
+        geo: { "1X": "https://example.com/en" },
+      }),
+    ).rejects.toBeInstanceOf(LinkValidationError);
+  });
+
+  test("create rejects invalid URL inside geo", async () => {
+    await expect(
+      service.create({
+        url: "https://example.com",
+        geo: { US: "not-a-url" },
+      }),
+    ).rejects.toBeInstanceOf(LinkValidationError);
+  });
+
+  test("create rejects geo variant pointing at the shortener host", async () => {
+    await expect(
+      service.create({
+        url: "https://example.com",
+        geo: { US: "https://short.example/evil" },
+      }),
+    ).rejects.toBeInstanceOf(LinkValidationError);
+  });
 });

@@ -1,4 +1,4 @@
-import { LinkStore, type Link } from "../storage/kv";
+import { LinkStore, type GeoVariants, type Link } from "../storage/kv";
 import { generateSlug, isValidSlug } from "../lib/slug";
 import { isValidUrl } from "../lib/validate";
 
@@ -27,6 +27,7 @@ export interface CreateLinkInput {
   url: string;
   slug?: string;
   expiresIn?: number;
+  geo?: Record<string, string>;
 }
 
 export interface LinkResponse extends Link {
@@ -34,6 +35,7 @@ export interface LinkResponse extends Link {
 }
 
 const MAX_GENERATE_ATTEMPTS = 5;
+const COUNTRY_CODE_RE = /^[A-Z]{2}$/;
 
 export class LinkService {
   constructor(
@@ -53,18 +55,46 @@ export class LinkService {
     }
   }
 
-  async create(input: CreateLinkInput): Promise<LinkResponse> {
-    if (!isValidUrl(input.url)) {
-      throw new LinkValidationError("invalid url");
+  private validateTarget(url: string, label: string): void {
+    if (!isValidUrl(url)) {
+      throw new LinkValidationError(`invalid url: ${label}`);
     }
-    if (this.isSelfHost(input.url)) {
+    if (this.isSelfHost(url)) {
       throw new LinkValidationError(
-        "target must not point to this shortener",
+        `target must not point to this shortener: ${label}`,
       );
     }
+  }
+
+  private normalizeGeo(
+    geo: Record<string, string> | undefined,
+  ): GeoVariants | undefined {
+    if (geo === undefined) return undefined;
+    const entries = Object.entries(geo);
+    if (entries.length === 0) return undefined;
+    const normalized: GeoVariants = {};
+    for (const [rawCode, url] of entries) {
+      const code = rawCode.toUpperCase();
+      if (!COUNTRY_CODE_RE.test(code)) {
+        throw new LinkValidationError(
+          `invalid country code (expected ISO 3166-1 alpha-2): ${rawCode}`,
+        );
+      }
+      if (typeof url !== "string") {
+        throw new LinkValidationError(`geo[${code}] must be a string`);
+      }
+      this.validateTarget(url, `geo[${code}]`);
+      normalized[code] = url;
+    }
+    return normalized;
+  }
+
+  async create(input: CreateLinkInput): Promise<LinkResponse> {
+    this.validateTarget(input.url, "url");
     if (input.expiresIn !== undefined && input.expiresIn <= 0) {
       throw new LinkValidationError("expiresIn must be positive");
     }
+    const geo = this.normalizeGeo(input.geo);
 
     let slug = input.slug;
     if (slug !== undefined) {
@@ -87,7 +117,7 @@ export class LinkService {
       }
     }
 
-    const link = await this.store.put(slug, input.url, input.expiresIn);
+    const link = await this.store.put(slug, input.url, input.expiresIn, geo);
     return this.toResponse(link);
   }
 

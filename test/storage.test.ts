@@ -121,6 +121,47 @@ describe("LinkStore", () => {
     expect(mockKv.getCallCount).toBe(1);
   });
 
+  test("put with geo variants stores envelope and get returns geo map", async () => {
+    const geo = {
+      US: "https://example.com/en",
+      JP: "https://example.com/ja",
+    };
+    const link = await store.put("abc", "https://example.com", undefined, geo);
+    expect(link.geo).toEqual(geo);
+
+    const fetched = await store.get("abc");
+    expect(fetched?.url).toBe("https://example.com");
+    expect(fetched?.geo).toEqual(geo);
+  });
+
+  test("put without geo stores raw URL and get returns no geo field", async () => {
+    await store.put("abc", "https://example.com");
+    const fetched = await store.get("abc");
+    expect(fetched?.url).toBe("https://example.com");
+    expect(fetched?.geo).toBeUndefined();
+  });
+
+  test("put with empty geo object is treated as no geo", async () => {
+    const link = await store.put("abc", "https://example.com", undefined, {});
+    expect(link.geo).toBeUndefined();
+    const fetched = await store.get("abc");
+    expect(fetched?.geo).toBeUndefined();
+  });
+
+  test("list returns default URL for geo-enabled links", async () => {
+    await store.put("a", "https://a.example", undefined, {
+      US: "https://a.example/en",
+    });
+    await store.put("b", "https://b.example");
+
+    const result = await store.list(10);
+    const byName = Object.fromEntries(
+      result.links.map((l) => [l.slug, l.url]),
+    );
+    expect(byName.a).toBe("https://a.example");
+    expect(byName.b).toBe("https://b.example");
+  });
+
   test("expired entries are not returned", async () => {
     const mockKv = asMockKV(kv);
     const baseTime = Date.now();
