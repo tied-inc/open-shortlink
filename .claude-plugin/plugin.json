@@ -1,0 +1,29 @@
+{
+  "name": "open-shortlink",
+  "version": "0.1.0",
+  "description": "Open Shortlink の Remote MCP サーバー接続と、URL 短縮・クリック分析ツールの使い方を教える Skill をバンドルした Claude Code プラグイン。",
+  "author": {
+    "name": "tied-inc",
+    "url": "https://github.com/tied-inc/open-shortlink"
+  },
+  "homepage": "https://tied-inc.github.io/open-shortlink/",
+  "repository": "https://github.com/tied-inc/open-shortlink",
+  "license": "MIT",
+  "keywords": [
+    "mcp",
+    "skill",
+    "url-shortener",
+    "shortlink",
+    "cloudflare-workers",
+    "analytics"
+  ],
+  "mcpServers": {
+    "shortlink": {
+      "type": "http",
+      "url": "${SHORTLINK_MCP_URL}",
+      "headers": {
+        "Authorization": "Bearer ${SHORTLINK_API_TOKEN}"
+      }
+    }
+  }
+}
