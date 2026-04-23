@@ -1,0 +1,14 @@
+name = "open-shortlink"
+main = "src/index.ts"
+compatibility_date = "2025-04-01"
+
+[observability]
+enabled = true
+
+[[kv_namespaces]]
+binding = "SHORTLINKS"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+[[analytics_engine_datasets]]
+binding = "ANALYTICS"
+dataset = "open_shortlink_clicks"
