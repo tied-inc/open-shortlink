@@ -2,16 +2,18 @@
 
 ## Deploy to Cloudflare（推奨）
 
-最も簡単な方法。ボタンをクリックするだけでセットアップが完了します。
+最も簡単な方法。ボタンをクリックするだけで、Cloudflare コンソール上でデプロイまで完結します。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/tied-inc/open-shortlink)
 
 ### 自動で行われること
 
 1. GitHub リポジトリを自分のアカウントに fork
-2. Cloudflare API トークンを設定
-3. GitHub Actions で `wrangler deploy` を実行
+2. Cloudflare コンソール上で Worker プロジェクトが作成され、fork リポジトリが接続される
+3. Cloudflare 側（Workers Builds）で `wrangler deploy` が実行される
 4. KV Namespace と Analytics Engine が自動作成
+
+> このリポジトリでは GitHub Actions から `wrangler deploy` を実行しません。以降のデプロイもすべて Cloudflare コンソール側で完結します。デプロイ状況は Cloudflare ダッシュボードの **Workers & Pages → 対象 Worker → Deployments** タブから確認できます。
 
 ### デプロイ後の設定
 

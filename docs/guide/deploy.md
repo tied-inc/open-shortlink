@@ -2,21 +2,26 @@
 
 ## Deploy to Cloudflare（推奨）
 
-最も簡単な方法。ボタンをクリックするだけでセットアップが完了する。
+最も簡単な方法。ボタンをクリックするだけで、Cloudflare のコンソール上でデプロイが完結する。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/tied-inc/open-shortlink)
 
 ### 自動で行われること
 
 1. GitHub リポジトリを自分のアカウントに fork
-2. Cloudflare API トークンを設定
-3. GitHub Actions で `wrangler deploy` を実行
+2. Cloudflare コンソール上で Workers プロジェクトが作成され、fork したリポジトリが接続される
+3. Cloudflare 側のビルド（Workers Builds）で `wrangler deploy` が実行される
 4. KV Namespace と Analytics Engine が自動作成
 
-### デプロイ後の設定
+> このリポジトリでは GitHub Actions から `wrangler deploy` を実行しない。ビルドおよびデプロイは Cloudflare コンソール側で完結する想定。以降の `main` への push も、Cloudflare 側の Workers Builds でデプロイされる。
 
-1. Cloudflare ダッシュボードで Worker の環境変数 `API_TOKEN` を設定
-2. （オプション）カスタムドメインを設定
+### デプロイ後の設定（コンソールで完結）
+
+すべて Cloudflare ダッシュボード上で完了する:
+
+1. Workers & Pages → 対象の Worker → **Settings → Variables** で `API_TOKEN`（Bearer 認証用）を Secret として追加
+2. （オプション）**Settings → Triggers → Custom Domains** でカスタムドメインを設定
+3. （オプション）**Settings → Build** で自動ビルドのブランチやコマンドを確認・変更
 
 ## 手動デプロイ
 
@@ -161,24 +166,33 @@ Open Shortlink は二段構えでレート制限を行う。
 
 ## CI/CD
 
-Deploy to Cloudflare ボタンを使った場合、GitHub Actions が自動設定される。以降は `main` ブランチへの push で自動デプロイが行われる。
+このリポジトリでは GitHub Actions から `wrangler deploy` を実行していない。継続的デプロイは **Cloudflare コンソール側の Workers Builds** で完結させる想定。
 
-手動セットアップの場合は `.github/workflows/deploy.yml` を参考に設定:
+### Workers Builds の挙動
+
+Deploy to Cloudflare ボタンでセットアップした場合、Cloudflare 側で以下が自動設定される:
+
+- fork 先の GitHub リポジトリが Worker プロジェクトに接続される
+- ビルドコマンド: `bun install && bun run deploy`
+- 監視ブランチ: `main`
+- `main` への push を検知すると、Cloudflare 側でビルド → デプロイが走る
+
+ビルドログ・デプロイ状況は Cloudflare ダッシュボードの **Workers & Pages → 対象 Worker → Deployments / Builds** タブから確認できる。
+
+### コンソール上からの手動再デプロイ
+
+失敗したデプロイを再実行したい場合や、特定のコミットを再度デプロイしたい場合は、**Deployments** タブから該当ビルドの「Retry deployment」を選択するだけでよい。ローカルや GitHub Actions からのコマンド実行は不要。
+
+### GitHub Actions を使いたい場合
+
+原則コンソールでの運用を推奨するが、どうしても GitHub Actions を使いたい場合は、Cloudflare 側の Workers Builds を無効にした上で、自前のワークフローに以下を組み込む:
 
 ```yaml
-name: Deploy
-on:
-  push:
-    branches: [main]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - run: bun install
-      - run: bun run deploy
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+- uses: oven-sh/setup-bun@v2
+- run: bun install
+- run: bun run deploy
+  env:
+    CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
 ```
+
+Cloudflare 側と GitHub Actions 側の両方から同時に `wrangler deploy` が走ると競合するため、いずれか一方に寄せること。
