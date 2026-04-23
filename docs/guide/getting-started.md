@@ -14,6 +14,19 @@ Worker デプロイ → Secret 登録 まで一気に完了します。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/tied-inc/open-shortlink)
 
+::: warning 事前準備（初回のみ・30 秒）
+**Analytics Engine データセットを 1 つ手動で作成しておいてください。**
+ボタンを押す前か直後でも構いません。
+
+1. Cloudflare ダッシュボード → **Storage & Databases → Analytics Engine**
+2. 右上の **「データセットを作成」** をクリック
+3. 名前は **`open_shortlink_clicks`**（`wrangler.toml` と完全一致させる）
+
+これを忘れると deploy が `code: 10089 — You need to enable Analytics Engine`
+で失敗します。Cloudflare の仕様で、アカウント上で初めて Analytics Engine
+を使う場合のみ必要な初期化作業です（2 回目以降のフォーク先では不要）。
+:::
+
 ### 入力すべき値
 
 | 項目 | 値 | 備考 |
@@ -36,7 +49,20 @@ Variables で `API_TOKEN` を上書きしてください。
 
 ### 任意・推奨の追加設定
 
-- カスタムドメイン（Settings → Triggers → Custom Domains）
+- **カスタムドメイン**: Settings → Triggers → Custom Domains
+- **`*.workers.dev` と Preview URL を閉じる**: 初回 deploy のログに次の
+  warning が出ます。
+  ```
+  ▲ workers_dev is not in your Wrangler file → デフォルトで *.workers.dev が有効
+  ▲ preview_urls is not in your Wrangler file → Preview URL が有効
+  ```
+  カスタムドメインを当てたら `wrangler.toml` に以下を追記して再デプロイし、
+  攻撃面を減らしてください（apex 占有せず `*.workers.dev` だけで運用する
+  場合は `workers_dev = true` のまま）。
+  ```toml
+  workers_dev = false
+  preview_urls = false
+  ```
 - [Cloudflare Access で API ホストを保護](./security#二線目-cloudflare-access推奨)（組織運用向け）
 
 ## 手動セットアップ
@@ -84,9 +110,11 @@ bun run deploy
 
 - **KV Namespace** (`SHORTLINKS`) — slug → URL のマッピング保存。
   Wrangler 4.45+ が `[[kv_namespaces]]` に `id` が無いことを検知して
-  `open-shortlink-SHORTLINKS` のような名前で新規作成する
+  `open-shortlink-shortlinks` のような名前で新規作成する
 - **Analytics Engine** (`ANALYTICS`) — クリックデータの記録。
-  データセットは初回書き込みで自動作成
+  **dataset は事前作成が必要**（上記「事前準備」を参照）。Cloudflare の
+  仕様で、アカウントで Analytics Engine を初めて使う場合は最初の dataset
+  だけ手動で作る必要があり、それ以降は同名 dataset にアプリが書き込む
 
 ## ローカル開発
 
