@@ -177,6 +177,67 @@ describe("POST /api/links", () => {
     expect(res.status).toBe(400);
   });
 
+  test("creates link with geo variants", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({
+          url: "https://example.com",
+          slug: "geo1",
+          geo: {
+            US: "https://example.com/en",
+            JP: "https://example.com/ja",
+          },
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.slug).toBe("geo1");
+    expect(body.geo).toEqual({
+      US: "https://example.com/en",
+      JP: "https://example.com/ja",
+    });
+  });
+
+  test("rejects invalid country code in geo", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({
+          url: "https://example.com",
+          geo: { USA: "https://example.com/en" },
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects invalid url in geo", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({
+          url: "https://example.com",
+          geo: { US: "not-a-url" },
+        }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
   test("returns 409 for duplicate slug", async () => {
     await req(
       app,

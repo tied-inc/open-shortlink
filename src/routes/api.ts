@@ -46,6 +46,7 @@ const createSchema = z.object({
   url: z.string(),
   slug: z.string().optional(),
   expiresIn: z.number().int().positive().optional(),
+  geo: z.record(z.string(), z.string()).optional(),
 });
 
 apiRoute.post("/links", async (c) => {

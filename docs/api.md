@@ -33,15 +33,20 @@ Authorization: Bearer <API_TOKEN>
 {
   "url": "https://example.com/very/long/path",
   "slug": "my-custom-slug",
-  "expiresIn": 86400
+  "expiresIn": 86400,
+  "geo": {
+    "US": "https://example.com/en",
+    "JP": "https://example.com/ja"
+  }
 }
 ```
 
 | フィールド | 型 | 必須 | 説明 |
 |---|---|---|---|
-| `url` | string | Yes | 短縮対象の URL |
+| `url` | string | Yes | 短縮対象の URL（デフォルト / フォールバック） |
 | `slug` | string | No | カスタムスラッグ。省略時は自動生成（6文字） |
 | `expiresIn` | number | No | 有効期限（秒）。省略時は無期限 |
+| `geo` | object | No | 国別リダイレクト先。キーは ISO 3166-1 alpha-2（例: `US`, `JP`）、値は URL。該当なしの国は `url` にフォールバック |
 
 **レスポンス:** `201 Created`
 
@@ -49,17 +54,23 @@ Authorization: Bearer <API_TOKEN>
 {
   "slug": "abc123",
   "url": "https://example.com/very/long/path",
+  "geo": {
+    "US": "https://example.com/en",
+    "JP": "https://example.com/ja"
+  },
   "shortUrl": "https://your-domain.com/abc123",
   "createdAt": "2025-01-01T00:00:00Z",
   "expiresAt": "2025-01-02T00:00:00Z"
 }
 ```
 
+> `geo` が指定されたリンクは `Cache-Control: private, no-store` が付与され、エッジおよびブラウザキャッシュに載りません（国コードが含まれないキャッシュキーから誤配信されるのを防ぐため）。
+
 **エラー:**
 
 | ステータス | 説明 |
 |---|---|
-| 400 Bad Request | URL が不正、またはスラッグが無効 |
+| 400 Bad Request | URL が不正、スラッグが無効、`geo` のキー／値が不正 |
 | 409 Conflict | 指定したスラッグが既に使用されている |
 
 ### `GET /api/links`

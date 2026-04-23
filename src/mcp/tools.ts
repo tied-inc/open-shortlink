@@ -29,6 +29,11 @@ const linkResponseSchema = {
     shortUrl: { type: "string" },
     createdAt: { type: "number" },
     expiresAt: { type: "number" },
+    geo: {
+      type: "object",
+      additionalProperties: { type: "string" },
+      description: "Country code (ISO 3166-1 alpha-2) → target URL",
+    },
   },
 } as const;
 
@@ -69,6 +74,7 @@ const createLinkArgs = z.object({
   url: z.string(),
   slug: z.string().optional(),
   expiresIn: z.number().int().positive().optional(),
+  geo: z.record(z.string(), z.string()).optional(),
 });
 
 const listLinksArgs = z.object({
@@ -100,11 +106,17 @@ export const tools: ToolDefinition[] = [
       type: "object",
       required: ["url"],
       properties: {
-        url: { type: "string", description: "短縮対象の URL" },
+        url: { type: "string", description: "短縮対象の URL（デフォルト）" },
         slug: { type: "string", description: "カスタムスラッグ（省略可）" },
         expiresIn: {
           type: "number",
           description: "有効期限（秒）。省略時は無期限",
+        },
+        geo: {
+          type: "object",
+          additionalProperties: { type: "string" },
+          description:
+            "国別リダイレクト先。キーは ISO 3166-1 alpha-2（例: US, JP）。一致しない国は url にフォールバック",
         },
       },
     },

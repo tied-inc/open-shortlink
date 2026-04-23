@@ -16,6 +16,19 @@ async function seed(env: Bindings, slug: string, url: string) {
   await new LinkStore(env.SHORTLINKS).put(slug, url);
 }
 
+function buildGeoRequest(
+  path: string,
+  country: string,
+  headers: Record<string, string> = {},
+): Request {
+  const req = new Request(`https://test.example${path}`, {
+    method: "GET",
+    headers,
+  });
+  (req as unknown as { cf: { country: string } }).cf = { country };
+  return req;
+}
+
 describe("GET /:slug", () => {
   let app: ReturnType<typeof buildApp>;
   let env: Bindings;
@@ -109,5 +122,71 @@ describe("GET /:slug", () => {
     expect(writes[0]?.blobs?.[1]).toBe(""); // empty referer
     expect(writes[0]?.blobs?.[3]).toBe(""); // empty UA
     expect(writes[0]?.blobs?.[4]).toBe("human");
+  });
+});
+
+describe("GET /:slug with geo variants", () => {
+  let app: ReturnType<typeof buildApp>;
+  let env: Bindings;
+
+  beforeEach(() => {
+    app = buildApp();
+    env = createTestEnv();
+  });
+
+  async function seedGeo(
+    slug: string,
+    url: string,
+    geo: Record<string, string>,
+  ) {
+    await new LinkStore(env.SHORTLINKS).put(slug, url, undefined, geo);
+  }
+
+  test("redirects to country-specific URL when country matches", async () => {
+    await seedGeo("abc", "https://example.com", {
+      US: "https://example.com/en",
+      JP: "https://example.com/ja",
+    });
+
+    const res = await app.request(
+      buildGeoRequest("/abc", "JP"),
+      undefined,
+      env,
+      createTestCtx(),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://example.com/ja");
+  });
+
+  test("falls back to default URL when country not in geo map", async () => {
+    await seedGeo("abc", "https://example.com/default", {
+      US: "https://example.com/en",
+    });
+
+    const res = await app.request(
+      buildGeoRequest("/abc", "DE"),
+      undefined,
+      env,
+      createTestCtx(),
+    );
+
+    expect(res.status).toBe(302);
+    expect(res.headers.get("location")).toBe("https://example.com/default");
+  });
+
+  test("sets no-store cache-control for geo-variant responses", async () => {
+    await seedGeo("abc", "https://example.com", {
+      US: "https://example.com/en",
+    });
+
+    const res = await app.request(
+      buildGeoRequest("/abc", "US"),
+      undefined,
+      env,
+      createTestCtx(),
+    );
+
+    expect(res.headers.get("cache-control")).toBe("private, no-store");
   });
 });

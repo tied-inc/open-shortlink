@@ -18,7 +18,7 @@
 | フレームワーク | Hono |
 | 言語 | TypeScript |
 | パッケージマネージャー | Bun |
-| リダイレクト用ストレージ | Cloudflare KV |
+| リダイレクト用ストレージ | Cloudflare KV（geo バリアント対応） |
 | 分析 | Cloudflare Analytics Engine |
 | MCP | Remote MCP (Worker 内蔵) |
 | ドキュメント | VitePress (GitHub Pages) |
@@ -47,10 +47,13 @@
 ```
 Key:      slug (例: "abc123")
 Value:    対象 URL (例: "https://example.com/very/long/path")
-Metadata: { createdAt: number, expiresAt?: number }
+          または geo 付きの場合は JSON エンベロープ
+          { "u": "https://example.com", "g": { "US": "...", "JP": "..." } }
+Metadata: { createdAt: number, expiresAt?: number, url?: string }
 ```
 
 - `expirationTtl` で有効期限を実現（Cloudflare が自動削除）
+- geo バリアントが無いリンクは value を生の URL として保存（後方互換）
 
 ### Analytics Engine
 
@@ -104,15 +107,24 @@ Metadata: { createdAt: number, expiresAt?: number }
 {
   "url": "https://example.com/path",
   "slug": "custom-slug",    // optional, 省略時は6文字自動生成
-  "expiresIn": 86400         // optional, 秒。省略時は無期限
+  "expiresIn": 86400,        // optional, 秒。省略時は無期限
+  "geo": {                   // optional, 国別リダイレクト先
+    "US": "https://example.com/en",
+    "JP": "https://example.com/ja"
+  }
 }
 ```
+
+- `geo` のキーは ISO 3166-1 alpha-2（2 文字大文字）。小文字入力は大文字へ正規化
+- `geo` のいずれかの値が不正 URL / 自ホスト向けなら 400
+- `geo` に一致する国コードが無い場合は `url`（デフォルト）にフォールバック
 
 レスポンス (201):
 ```json
 {
   "slug": "abc123",
   "url": "https://example.com/path",
+  "geo": { "US": "...", "JP": "..." },  // geo 指定時のみ
   "shortUrl": "https://your-domain.com/abc123",
   "createdAt": "2025-01-01T00:00:00Z",
   "expiresAt": "2025-01-02T00:00:00Z"
@@ -120,7 +132,7 @@ Metadata: { createdAt: number, expiresAt?: number }
 ```
 
 エラー:
-- 400: URL 不正 / スラッグ無効
+- 400: URL 不正 / スラッグ無効 / geo キー不正 / geo URL 不正
 - 409: スラッグ重複
 
 ### GET /api/links
@@ -277,12 +289,31 @@ meta-externalagent
 ### リダイレクト
 ```
 GET /:slug
-  → KV.get(slug)
-  → 見つかった → 302 redirect + waitUntil(Analytics Engine 書込み)
-  → 見つからない → 404
+  → caches.default.match(req)
+  → HIT → 302 (cached) + waitUntil(Analytics Engine 書込み)
+  → MISS → KV.get(slug)
+        → 見つからない → 404
+        → geo なし → 302 + waitUntil(cache.put + Analytics 書込み)
+        → geo あり → request.cf.country でルックアップ、ヒットしなければ
+                     デフォルト URL にフォールバック。`Cache-Control:
+                     private, no-store` を付与しエッジ/ブラウザ共にキャッシュ
+                     させない + waitUntil(Analytics 書込み)
 ```
 
-Analytics Engine への書込みは `waitUntil()` で非同期。レスポンスレイテンシに影響しない。
+- エッジキャッシュのキーはリクエスト URL のみで国情報を含まないため、geo
+  バリアントを持つリンクはキャッシュに書き込まない。書き込まない以上、ヒット
+  したレスポンスは常に geo 非対応のものと保証できる
+- 非 geo リンクは従来どおり `public, s-maxage=60` で colo キャッシュに載せる
+- Analytics Engine への書込みは `waitUntil()` で非同期。レスポンスレイテンシに影響しない
+
+### geo バリアントの注意点
+
+- 国判定は `request.cf.country`（Cloudflare 決定）。VPN・モバイル回線などで
+  実住所と乖離することがある
+- 少数バリアントの想定：すべての国を列挙する必要はなく、出し分けたい国のみ
+  指定してその他はデフォルトにフォールバックする設計
+- Accept-Language ベースの出し分けはランディング側で行う前提。短縮リンク側は
+  国ベースの粗い振り分けに特化
 
 ## デプロイ
 

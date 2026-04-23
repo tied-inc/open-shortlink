@@ -14,11 +14,12 @@ redirectRoute.get("/:slug", async (c) => {
   const slug = c.req.param("slug");
   const req = c.req.raw;
   const cf = (req as unknown as { cf?: IncomingRequestCfProperties }).cf;
+  const country = cf?.country ?? "";
 
   const event: ClickEvent = {
     slug,
     referer: req.headers.get("referer") ?? "",
-    country: cf?.country ?? "",
+    country,
     userAgent: req.headers.get("user-agent") ?? "",
   };
   const scheduleTrack = () => {
@@ -31,6 +32,8 @@ redirectRoute.get("/:slug", async (c) => {
   // in non-Worker environments (e.g. unit tests).
   const cache = (globalThis as { caches?: CacheStorage }).caches?.default;
 
+  // Cache reads are safe: we only ever write non-geo responses to the cache
+  // (see below), so any cache hit is guaranteed to be country-independent.
   if (cache) {
     const cached = await cache.match(req);
     if (cached) {
@@ -46,16 +49,23 @@ redirectRoute.get("/:slug", async (c) => {
 
   scheduleTrack();
 
+  const hasGeo = link.geo !== undefined && Object.keys(link.geo).length > 0;
+  const target = hasGeo ? (link.geo![country] ?? link.url) : link.url;
+
   const response = new Response(null, {
     status: 302,
     headers: {
-      location: link.url,
-      // Edge-only cache: don't let browsers pin a 302 aggressively.
-      "cache-control": `public, max-age=0, s-maxage=${EDGE_CACHE_TTL_SECONDS}`,
+      location: target,
+      // Geo-variant responses must never be shared across viewers, since the
+      // edge cache key does not distinguish country. Plain links get the
+      // usual short edge TTL.
+      "cache-control": hasGeo
+        ? "private, no-store"
+        : `public, max-age=0, s-maxage=${EDGE_CACHE_TTL_SECONDS}`,
     },
   });
 
-  if (cache) {
+  if (cache && !hasGeo) {
     c.executionCtx.waitUntil(cache.put(req, response.clone()));
   }
 
