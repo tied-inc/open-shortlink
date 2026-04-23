@@ -117,69 +117,63 @@ async function handleRpc(
   const id = req.id ?? null;
   const isNotification = req.id === undefined;
 
-  try {
-    switch (req.method) {
-      case "initialize": {
-        const clientVersion = req.params?.["protocolVersion"];
-        return rpcResult(id, {
-          protocolVersion: negotiateProtocolVersion(clientVersion),
-          capabilities: { tools: { listChanged: false } },
-          serverInfo: SERVER_INFO,
-        });
-      }
-
-      case "notifications/initialized":
-      case "notifications/cancelled":
-        return null;
-
-      case "ping":
-        return rpcResult(id, {});
-
-      case "tools/list":
-        return rpcResult(id, {
-          tools: tools.map((t) => ({
-            name: t.name,
-            description: t.description,
-            inputSchema: t.inputSchema,
-          })),
-        });
-
-      case "tools/call": {
-        const params = req.params ?? {};
-        const name = params["name"] as string | undefined;
-        const args = (params["arguments"] as Record<string, unknown>) ?? {};
-        if (!name) {
-          return rpcError(id, -32602, "missing tool name");
-        }
-        const tool = toolMap.get(name);
-        if (!tool) {
-          return rpcError(id, -32601, `unknown tool: ${name}`);
-        }
-        try {
-          const result = await tool.handler(args, ctx);
-          return rpcResult(id, {
-            content: [
-              { type: "text", text: JSON.stringify(result, null, 2) },
-            ],
-            structuredContent: result,
-          });
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          return rpcResult(id, {
-            isError: true,
-            content: [{ type: "text", text: message }],
-          });
-        }
-      }
-
-      default:
-        if (isNotification) return null;
-        return rpcError(id, -32601, `method not found: ${req.method}`);
+  switch (req.method) {
+    case "initialize": {
+      const clientVersion = req.params?.["protocolVersion"];
+      return rpcResult(id, {
+        protocolVersion: negotiateProtocolVersion(clientVersion),
+        capabilities: { tools: { listChanged: false } },
+        serverInfo: SERVER_INFO,
+      });
     }
-  } catch (err) {
-    if (isNotification) return null;
-    const message = err instanceof Error ? err.message : String(err);
-    return rpcError(id, -32603, message);
+
+    case "notifications/initialized":
+    case "notifications/cancelled":
+      return null;
+
+    case "ping":
+      return rpcResult(id, {});
+
+    case "tools/list":
+      return rpcResult(id, {
+        tools: tools.map((t) => ({
+          name: t.name,
+          description: t.description,
+          inputSchema: t.inputSchema,
+        })),
+      });
+
+    case "tools/call": {
+      const params = req.params ?? {};
+      const name = params["name"] as string | undefined;
+      const args = (params["arguments"] as Record<string, unknown>) ?? {};
+      if (!name) {
+        return rpcError(id, -32602, "missing tool name");
+      }
+      const tool = toolMap.get(name);
+      if (!tool) {
+        return rpcError(id, -32601, `unknown tool: ${name}`);
+      }
+      try {
+        const result = await tool.handler(args, ctx);
+        return rpcResult(id, {
+          content: [
+            { type: "text", text: JSON.stringify(result, null, 2) },
+          ],
+          structuredContent: result,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        return rpcResult(id, {
+          isError: true,
+          content: [{ type: "text", text: message }],
+        });
+      }
+    }
+
+    default:
+      if (isNotification) return null;
+      return rpcError(id, -32601, `method not found: ${req.method}`);
   }
 }
 
