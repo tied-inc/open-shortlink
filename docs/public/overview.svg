@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 820 520" role="img" aria-labelledby="title desc" preserveAspectRatio="xMidYMid meet">
+  <title id="title">Open Shortlink サービス構成図</title>
+  <desc id="desc">エンドユーザーと AI アシスタントが Cloudflare Workers 上の Open Shortlink を利用する流れ。Worker は Redirect / REST API / MCP Server を提供し、KV と Analytics Engine をストレージに使う。</desc>
+
+  <style>
+    .bg      { fill: #fafaf9; stroke: #d6d3d1; stroke-width: 1.25; }
+    .hub     { fill: #fdf6f2; stroke: #d97757; stroke-width: 1.5; }
+    .chip    { fill: #ffffff; stroke: #e7e5e4; stroke-width: 1; }
+    .store   { fill: #f5f5f4; stroke: #d6d3d1; stroke-width: 1.25; }
+    .tHead   { font: 600 14px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1c1917; }
+    .tLabel  { font: 500 13px -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; fill: #1c1917; }
+    .tSub    { font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #78716c; }
+    .tEdge   { font: 11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fill: #57534e; }
+    .tAccent { fill: #b45309; }
+    .edge    { stroke: #a8a29e; stroke-width: 1.5; fill: none; }
+    .edgeA   { stroke: #d97757; stroke-width: 1.5; fill: none; }
+    @media (prefers-color-scheme: dark) {
+      .bg    { fill: #1c1917; stroke: #44403c; }
+      .hub   { fill: #291b14; stroke: #d97757; }
+      .chip  { fill: #292524; stroke: #44403c; }
+      .store { fill: #1c1917; stroke: #44403c; }
+      .tHead, .tLabel { fill: #e7e5e4; }
+      .tSub, .tEdge   { fill: #a8a29e; }
+      .tAccent        { fill: #f59e0b; }
+      .edge           { stroke: #78716c; }
+    }
+  </style>
+
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#a8a29e"/>
+    </marker>
+    <marker id="arrA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#d97757"/>
+    </marker>
+  </defs>
+
+  <!-- Actors -->
+  <g>
+    <rect class="bg" x="40" y="30" width="170" height="74" rx="12"/>
+    <text class="tHead"  x="125" y="62" text-anchor="middle">エンドユーザー</text>
+    <text class="tSub"   x="125" y="84" text-anchor="middle">short.example/abc</text>
+  </g>
+
+  <g>
+    <rect class="bg" x="610" y="30" width="170" height="74" rx="12"/>
+    <text class="tHead"  x="695" y="62" text-anchor="middle">AI アシスタント</text>
+    <text class="tSub"   x="695" y="84" text-anchor="middle">Claude Desktop など</text>
+  </g>
+
+  <!-- Hub: Cloudflare Workers -->
+  <g>
+    <rect class="hub" x="200" y="170" width="420" height="190" rx="14"/>
+    <text class="tHead"  x="220" y="197">Cloudflare Workers</text>
+    <text class="tSub"   x="220" y="215">Hono / TypeScript ・ 単一 Worker に統合</text>
+
+    <!-- Redirect -->
+    <rect class="chip" x="220" y="235" width="120" height="105" rx="10"/>
+    <text class="tLabel" x="280" y="265" text-anchor="middle">Redirect</text>
+    <text class="tSub"   x="280" y="287" text-anchor="middle">GET /:slug</text>
+    <text class="tSub"   x="280" y="305" text-anchor="middle">認証なし</text>
+    <text class="tSub"   x="280" y="323" text-anchor="middle">エッジで 302</text>
+
+    <!-- REST API -->
+    <rect class="chip" x="350" y="235" width="120" height="105" rx="10"/>
+    <text class="tLabel" x="410" y="265" text-anchor="middle">REST API</text>
+    <text class="tSub"   x="410" y="287" text-anchor="middle">/api/*</text>
+    <text class="tSub"   x="410" y="305" text-anchor="middle">Bearer token</text>
+    <text class="tSub"   x="410" y="323" text-anchor="middle">CRUD / 集計</text>
+
+    <!-- MCP -->
+    <rect class="chip" x="480" y="235" width="120" height="105" rx="10"/>
+    <text class="tLabel" x="540" y="265" text-anchor="middle">MCP Server</text>
+    <text class="tSub"   x="540" y="287" text-anchor="middle">/mcp</text>
+    <text class="tSub"   x="540" y="305" text-anchor="middle">AI ツール公開</text>
+    <text class="tSub"   x="540" y="323" text-anchor="middle">自然言語操作</text>
+  </g>
+
+  <!-- Stores -->
+  <g>
+    <rect class="store" x="140" y="430" width="220" height="74" rx="12"/>
+    <text class="tHead"  x="250" y="462" text-anchor="middle">KV ストア</text>
+    <text class="tSub"   x="250" y="484" text-anchor="middle">slug → URL ・ TTL による自動失効</text>
+  </g>
+
+  <g>
+    <rect class="store" x="460" y="430" width="220" height="74" rx="12"/>
+    <text class="tHead"  x="570" y="462" text-anchor="middle">Analytics Engine</text>
+    <text class="tSub"   x="570" y="484" text-anchor="middle">クリックデータ ・ SQL クエリ</text>
+  </g>
+
+  <!-- Edges: End User ⇄ Worker -->
+  <path class="edge"  d="M 110 104 C 130 140, 180 155, 240 170" marker-end="url(#arr)"/>
+  <text class="tEdge" x="80"  y="140">GET /:slug</text>
+
+  <path class="edgeA" d="M 260 170 C 200 155, 150 140, 140 104" marker-end="url(#arrA)"/>
+  <text class="tEdge tAccent" x="150" y="168">302 リダイレクト</text>
+
+  <!-- Edges: AI Assistant → Worker -->
+  <path class="edge" d="M 695 104 C 680 140, 640 155, 580 170" marker-end="url(#arr)"/>
+  <text class="tEdge" x="620" y="140">リンク管理 / 分析</text>
+
+  <!-- Edges: Worker → Stores -->
+  <path class="edge" d="M 270 360 C 260 390, 255 410, 250 428" marker-end="url(#arr)"/>
+  <text class="tEdge" x="160" y="400">read / write</text>
+
+  <path class="edge" d="M 560 360 C 565 390, 568 410, 570 428" marker-end="url(#arr)"/>
+  <text class="tEdge" x="585" y="400">waitUntil() で書込み</text>
+</svg>
