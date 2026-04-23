@@ -39,11 +39,15 @@ describe("isValidSlug", () => {
     expect(isValidSlug("api-links")).toBe(false);
   });
 
-  test("rejects reserved exact names", () => {
+  test("rejects conventional/reserved path names", () => {
     expect(isValidSlug("health")).toBe(false);
     expect(isValidSlug("healthz")).toBe(false);
+    expect(isValidSlug("ready")).toBe(false);
     expect(isValidSlug("metrics")).toBe(false);
-    expect(isValidSlug("HEALTH")).toBe(false);
+    expect(isValidSlug("robots")).toBe(false);
+    expect(isValidSlug("favicon")).toBe(false);
+    expect(isValidSlug("sitemap")).toBe(false);
+    expect(isValidSlug("well-known")).toBe(false);
   });
 
   test("rejects slugs longer than 64 chars", () => {

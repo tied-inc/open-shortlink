@@ -21,7 +21,8 @@ apiRoute.use("*", bearerAuth);
 // hostile.
 const MAX_JSON_BODY_BYTES = 16 * 1024;
 
-function getBaseUrl(c: { req: { url: string } }): string {
+function getBaseUrl(c: { req: { url: string }; env: Bindings }): string {
+  if (c.env.PUBLIC_BASE_URL) return c.env.PUBLIC_BASE_URL.replace(/\/+$/, "");
   const url = new URL(c.req.url);
   return `${url.protocol}//${url.host}`;
 }
@@ -112,9 +113,14 @@ apiRoute.delete("/links/:slug", async (c) => {
   if (!isValidSlug(slug)) {
     return c.json({ error: "invalid slug" }, 400);
   }
-  const service = getService(c.env, getBaseUrl(c));
+  const baseUrl = getBaseUrl(c);
+  const service = getService(c.env, baseUrl);
   try {
     await service.delete(slug);
+    const cache = (globalThis as { caches?: CacheStorage }).caches?.default;
+    if (cache) {
+      c.executionCtx.waitUntil(cache.delete(`${baseUrl}/${slug}`));
+    }
     return c.body(null, 204);
   } catch (err) {
     if (err instanceof LinkNotFoundError) {

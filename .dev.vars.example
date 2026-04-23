@@ -12,3 +12,13 @@ API_TOKEN=replace-with-output-of-openssl-rand-base64-32
 # every origin allowed (safe because the API is bearer-auth only). Set to a
 # specific origin list when you publish a UI.
 # CORS_ALLOW_ORIGIN=https://ui.example.com,https://admin.example.com
+
+# Optional: canonical origin used in `shortUrl` responses and for edge cache
+# purges. When the worker is bound to a custom domain, set this to the
+# short-link host so responses don't echo the request host.
+# PUBLIC_BASE_URL=https://go.example.com
+
+# Optional: host split. When both are set, the redirect host refuses
+# /api/* and /mcp/* traffic, and the API host refuses /:slug traffic.
+# REDIRECT_HOST=go.example.com
+# API_HOST=api.example.com

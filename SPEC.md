@@ -261,6 +261,17 @@ meta-externalagent
 - **リクエストボディ上限**: `POST /api/links` は 16KiB、`POST /mcp` は 256KiB。
 - **エラーメッセージ**: MCP の内部エラーは `tool execution failed` として外部露出せず、詳細はサーバログのみに出力。
 
+## レート制限
+
+- Worker 組込み (`src/middleware/rate-limit.ts`): `/api/*` と `/mcp`, `/mcp/*` に
+  対して IP 単位、既定 60 秒あたり 120 リクエスト
+- 状態は Worker isolate ごと。グローバルリミットではなく、**isolate に対する
+  バースト防止のセーフティネット**として機能する
+- 超過時は `429 Too Many Requests` を返し、`Retry-After` / `X-RateLimit-Limit`
+  / `X-RateLimit-Remaining` / `X-RateLimit-Reset` を付与する
+- グローバル enforcement は Cloudflare Rate Limiting Rules（ダッシュボード）で
+  行う方針。設定手順は `docs/guide/deploy.md` を参照
+
 ## リクエストフロー
 
 ### リダイレクト

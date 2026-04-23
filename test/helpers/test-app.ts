@@ -9,6 +9,9 @@ export const TEST_TOKEN = "test-secret-token-abcdef-123456";
 export interface TestEnvOptions {
   apiToken?: string;
   analyticsConfigured?: boolean;
+  publicBaseUrl?: string;
+  redirectHost?: string;
+  apiHost?: string;
 }
 
 export function createTestEnv(opts: TestEnvOptions = {}): Bindings {
@@ -21,6 +24,9 @@ export function createTestEnv(opts: TestEnvOptions = {}): Bindings {
     env.CF_ACCOUNT_ID = "test-account";
     env.CF_ANALYTICS_TOKEN = TEST_TOKEN;
   }
+  if (opts.publicBaseUrl) env.PUBLIC_BASE_URL = opts.publicBaseUrl;
+  if (opts.redirectHost) env.REDIRECT_HOST = opts.redirectHost;
+  if (opts.apiHost) env.API_HOST = opts.apiHost;
   return env;
 }
 

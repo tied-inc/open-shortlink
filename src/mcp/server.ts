@@ -193,6 +193,7 @@ async function handleRpc(
             name: t.name,
             description: t.description,
             inputSchema: t.inputSchema,
+            ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
           })),
         });
 
