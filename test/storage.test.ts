@@ -84,6 +84,43 @@ describe("LinkStore", () => {
     expect(second.cursor).toBeUndefined();
   });
 
+  test("list avoids per-key kv.get when URL fits in metadata", async () => {
+    const mockKv = asMockKV(kv);
+    for (let i = 0; i < 5; i++) {
+      await store.put(`slug${i}`, `https://${i}.example`);
+    }
+    mockKv.getCallCount = 0;
+
+    const result = await store.list(10);
+
+    expect(result.links).toHaveLength(5);
+    // N+1 eliminated: list triggers zero kv.get calls when URLs fit metadata.
+    expect(mockKv.getCallCount).toBe(0);
+    expect(result.links.map((l) => l.url).sort()).toEqual([
+      "https://0.example",
+      "https://1.example",
+      "https://2.example",
+      "https://3.example",
+      "https://4.example",
+    ]);
+  });
+
+  test("list falls back to kv.get when URL exceeds metadata budget", async () => {
+    const mockKv = asMockKV(kv);
+    const longUrl = `https://example.com/${"a".repeat(1100)}`;
+    await store.put("short", "https://example.com");
+    await store.put("long", longUrl);
+    mockKv.getCallCount = 0;
+
+    const result = await store.list(10);
+
+    const byName = Object.fromEntries(result.links.map((l) => [l.slug, l.url]));
+    expect(byName.short).toBe("https://example.com");
+    expect(byName.long).toBe(longUrl);
+    // Only the oversized entry triggers a fallback kv.get.
+    expect(mockKv.getCallCount).toBe(1);
+  });
+
   test("expired entries are not returned", async () => {
     const mockKv = asMockKV(kv);
     const baseTime = Date.now();
