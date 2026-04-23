@@ -2,3 +2,13 @@ API_TOKEN=dev-token-change-me
 # Optional: Analytics Engine SQL query credentials.
 # CF_ACCOUNT_ID=your-cloudflare-account-id
 # CF_ANALYTICS_TOKEN=your-cloudflare-api-token-with-account-analytics-read
+
+# Optional: canonical origin used in `shortUrl` responses and for edge cache
+# purges. When the worker is bound to a custom domain, set this to the
+# short-link host so responses don't echo the request host.
+# PUBLIC_BASE_URL=https://go.example.com
+
+# Optional: host split. When both are set, the redirect host refuses
+# /api/* and /mcp/* traffic, and the API host refuses /:slug traffic.
+# REDIRECT_HOST=go.example.com
+# API_HOST=api.example.com

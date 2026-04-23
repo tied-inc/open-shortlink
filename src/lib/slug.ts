@@ -10,8 +10,17 @@ export function generateSlug(): string {
   return generator();
 }
 
-// Reserved prefixes that would collide with routing.
-const RESERVED_PREFIXES = ["api", "mcp"];
+// Reserved prefixes that would collide with routing or conventional paths
+// served directly by the worker (robots, favicon, health checks, etc.).
+const RESERVED_PREFIXES = [
+  "api",
+  "mcp",
+  "health",
+  "robots",
+  "favicon",
+  "sitemap",
+  "well-known",
+];
 const SLUG_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 export function isValidSlug(slug: string): boolean {
