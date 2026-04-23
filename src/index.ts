@@ -6,10 +6,12 @@ import { mcpRoute } from "./mcp/server";
 import { cors } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
 import { rateLimit } from "./middleware/rate-limit";
+import { securityHeaders } from "./middleware/security-headers";
 
 const app = new Hono<{ Bindings: Bindings }>();
 
 app.use("*", requestLogger);
+app.use("*", securityHeaders);
 app.use("/api/*", cors);
 app.use("/mcp", cors);
 app.use("/mcp/*", cors);

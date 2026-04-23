@@ -628,3 +628,60 @@ describe("MCP streamable-http compat", () => {
     expect(data.result.structuredContent).toEqual({ deleted: "dl" });
   });
 });
+
+describe("MCP hardening", () => {
+  test("rejects oversized POST body with 413", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const big = "x".repeat(256 * 1024 + 10);
+    const res = await app.request(
+      "https://test.example/mcp",
+      {
+        method: "POST",
+        headers: {
+          ...authHeader(),
+          "content-type": "application/json",
+          "content-length": String(big.length),
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping", big }),
+      },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(413);
+  });
+
+  test("create_link blocks SSRF target (localhost)", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "http://127.0.0.1/admin", slug: "ssrf" },
+      },
+    });
+    expect(data.result.isError).toBe(true);
+    expect(data.result.content[0].text).toContain("invalid url");
+  });
+
+  test("create_link blocks SSRF target (metadata IP)", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: {
+          url: "http://169.254.169.254/latest/meta-data/",
+          slug: "imd",
+        },
+      },
+    });
+    expect(data.result.isError).toBe(true);
+  });
+});

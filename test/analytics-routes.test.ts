@@ -193,6 +193,28 @@ describe("GET /api/analytics/ai", () => {
   });
 });
 
+describe("Analytics routes slug hardening", () => {
+  test("rejects invalid slug on /api/analytics/:slug with 400", async () => {
+    const env = createTestEnv({ analyticsConfigured: true });
+    const res = await apiGet(
+      "/api/analytics/" + encodeURIComponent("a'; DROP TABLE --"),
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects invalid slug on /api/analytics/:slug/timeseries with 400", async () => {
+    const env = createTestEnv({ analyticsConfigured: true });
+    const res = await apiGet(
+      "/api/analytics/" +
+        encodeURIComponent("bad slug") +
+        "/timeseries",
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("MCP analytics tools", () => {
   test("get_analytics returns data when configured", async () => {
     queueResponses(

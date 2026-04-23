@@ -1,12 +1,7 @@
 import { z } from "zod";
 import type { Bindings } from "../bindings";
 import { LinkStore } from "../storage/kv";
-import {
-  LinkConflictError,
-  LinkNotFoundError,
-  LinkService,
-  LinkValidationError,
-} from "../services/links";
+import { LinkService } from "../services/links";
 import { AnalyticsQuery, type Period, type Interval } from "../analytics/query";
 
 export interface ToolContext {
@@ -116,17 +111,7 @@ export const tools: ToolDefinition[] = [
     outputSchema: linkResponseSchema,
     handler: async (args, ctx) => {
       const input = createLinkArgs.parse(args);
-      try {
-        return await linkService(ctx).create(input);
-      } catch (err) {
-        if (
-          err instanceof LinkValidationError ||
-          err instanceof LinkConflictError
-        ) {
-          throw new Error(err.message);
-        }
-        throw err;
-      }
+      return linkService(ctx).create(input);
     },
   },
   {
@@ -165,12 +150,7 @@ export const tools: ToolDefinition[] = [
     outputSchema: linkResponseSchema,
     handler: async (args, ctx) => {
       const input = slugArgs.parse(args);
-      try {
-        return await linkService(ctx).get(input.slug);
-      } catch (err) {
-        if (err instanceof LinkNotFoundError) throw new Error(err.message);
-        throw err;
-      }
+      return linkService(ctx).get(input.slug);
     },
   },
   {
@@ -190,13 +170,8 @@ export const tools: ToolDefinition[] = [
     },
     handler: async (args, ctx) => {
       const input = slugArgs.parse(args);
-      try {
-        await linkService(ctx).delete(input.slug);
-        return { deleted: input.slug };
-      } catch (err) {
-        if (err instanceof LinkNotFoundError) throw new Error(err.message);
-        throw err;
-      }
+      await linkService(ctx).delete(input.slug);
+      return { deleted: input.slug };
     },
   },
   {
