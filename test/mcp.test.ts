@@ -269,7 +269,7 @@ describe("MCP tools/call", () => {
 });
 
 describe("MCP notifications", () => {
-  test("notifications/initialized returns 204", async () => {
+  test("notifications/initialized returns 202", async () => {
     const app = buildApp();
     const env = createTestEnv();
     const res = await app.request(
@@ -285,7 +285,7 @@ describe("MCP notifications", () => {
       env,
       createTestCtx(),
     );
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(202);
   });
 });
 
@@ -325,7 +325,7 @@ describe("MCP tools/call edge cases", () => {
     expect(data.result).toEqual({});
   });
 
-  test("notification for unknown method returns 204", async () => {
+  test("notification for unknown method returns 202", async () => {
     const app = buildApp();
     const env = createTestEnv();
     const res = await app.request(
@@ -338,10 +338,10 @@ describe("MCP tools/call edge cases", () => {
       env,
       createTestCtx(),
     );
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(202);
   });
 
-  test("batch of only notifications returns 204", async () => {
+  test("batch of only notifications returns 202", async () => {
     const app = buildApp();
     const env = createTestEnv();
     const res = await app.request(
@@ -357,7 +357,7 @@ describe("MCP tools/call edge cases", () => {
       env,
       createTestCtx(),
     );
-    expect(res.status).toBe(204);
+    expect(res.status).toBe(202);
   });
 });
 
@@ -375,7 +375,7 @@ describe("MCP JSON-RPC edge cases", () => {
       env,
       createTestCtx(),
     );
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(400);
     const data = (await res.json()) as { error: { code: number } };
     expect(data.error.code).toBe(-32700);
   });
@@ -416,5 +416,119 @@ describe("MCP GET /mcp", () => {
     expect(res.status).toBe(200);
     const data = (await res.json()) as { name: string };
     expect(data.name).toBe("open-shortlink");
+  });
+
+  test("returns 405 when client requests SSE", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await app.request(
+      "https://test.example/mcp",
+      {
+        method: "GET",
+        headers: { ...authHeader(), accept: "text/event-stream" },
+      },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(405);
+  });
+});
+
+describe("MCP DELETE /mcp", () => {
+  test("returns 405 (stateless server does not support session termination)", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await app.request(
+      "https://test.example/mcp",
+      { method: "DELETE", headers: authHeader() },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(405);
+  });
+});
+
+describe("MCP streamable-http compat", () => {
+  test("accepts application/json + text/event-stream Accept header", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await app.request(
+      "https://test.example/mcp",
+      {
+        method: "POST",
+        headers: {
+          ...authHeader(),
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { result: unknown };
+    expect(data.result).toEqual({});
+  });
+
+  test("returns 406 when Accept excludes JSON", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await app.request(
+      "https://test.example/mcp",
+      {
+        method: "POST",
+        headers: {
+          ...authHeader(),
+          "content-type": "application/json",
+          accept: "text/html",
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+      },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(406);
+  });
+
+  test("initialize echoes back client protocolVersion when supported", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "2025-03-26", capabilities: {} },
+    });
+    expect(data.result.protocolVersion).toBe("2025-03-26");
+  });
+
+  test("initialize falls back to latest when client version is unknown", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: "1999-01-01", capabilities: {} },
+    });
+    expect(data.result.protocolVersion).toBe("2025-06-18");
+  });
+
+  test("tools/call result includes structuredContent for MCP SDK clients", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "https://example.com", slug: "sc" },
+      },
+    });
+    expect(data.result.structuredContent).toBeDefined();
+    expect(data.result.structuredContent.slug).toBe("sc");
+    expect(data.result.structuredContent.url).toBe("https://example.com");
   });
 });
