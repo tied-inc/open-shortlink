@@ -1,10 +1,29 @@
 {
   "name": "open-shortlink",
+  "description": "Open-source URL shortener on Cloudflare Workers, with REST API and Remote MCP server.",
   "type": "module",
   "private": true,
+  "cloudflare": {
+    "label": "Open Shortlink",
+    "products": ["Workers", "KV", "Analytics Engine"],
+    "categories": ["storage"],
+    "docs_url": "https://tied-inc.github.io/open-shortlink/",
+    "publish": false,
+    "bindings": {
+      "API_TOKEN": {
+        "description": "**Required.** Bearer token for the REST API and MCP server. Must be **24+ random characters** — e.g. run `openssl rand -base64 32` and paste the result. Placeholders like `dev-token-change-me` are rejected at runtime. See the [security policy](https://tied-inc.github.io/open-shortlink/guide/security) for rotation and Cloudflare Access guidance."
+      },
+      "CORS_ALLOW_ORIGIN": {
+        "description": "Optional. Comma-separated origin allowlist for CORS (e.g. `https://ui.example.com`). Leave empty or `*` to allow any origin — safe because the API is bearer-auth only."
+      },
+      "PUBLIC_BASE_URL": {
+        "description": "Optional. Canonical origin returned in `shortUrl` responses. Set this once you bind a custom domain (e.g. `https://go.example.com`)."
+      }
+    }
+  },
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "./scripts/deploy.sh",
+    "deploy": "wrangler deploy",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "cf-typegen": "wrangler types",

@@ -5,9 +5,12 @@ compatibility_date = "2026-04-01"
 [observability]
 enabled = true
 
+# KV namespace is auto-provisioned by Wrangler on first `wrangler deploy`
+# when `id` is omitted (Wrangler 4.45+). The Deploy to Cloudflare button
+# uses this same mechanism — no manual `wrangler kv namespace create` step
+# is required.
 [[kv_namespaces]]
 binding = "SHORTLINKS"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
 
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"

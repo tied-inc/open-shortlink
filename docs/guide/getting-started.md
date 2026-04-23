@@ -6,31 +6,38 @@ Open Shortlink の API/MCP は `API_TOKEN` （Bearer 認証）を設定しない
 設定してください。詳しくは [セキュリティポリシー](./security) を参照。
 :::
 
-## Deploy to Cloudflare（推奨）
+## Deploy to Cloudflare（1 クリック）
 
-最も簡単な方法。ボタンをクリックするだけで、Cloudflare コンソール上でデプロイまで完結します。
+ボタンを押すと、セットアップ画面で `API_TOKEN` の入力と Worker 名の
+確認を求められます。送信すると fork → KV の自動プロビジョン →
+Worker デプロイ → Secret 登録 まで一気に完了します。
 
 [![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/tied-inc/open-shortlink)
 
-### 自動で行われること
+### 入力すべき値
 
-1. GitHub リポジトリを自分のアカウントに fork
-2. Cloudflare コンソール上で Worker プロジェクトが作成され、fork リポジトリが接続される
-3. Cloudflare 側（Workers Builds）で `wrangler deploy` が実行される
-4. KV Namespace と Analytics Engine が自動作成
+| 項目 | 値 | 備考 |
+|---|---|---|
+| Worker 名 | `open-shortlink` 等 | 後から変更不可（再デプロイで引継ぎ） |
+| `API_TOKEN` | 24 文字以上のランダム値 | `openssl rand -base64 32` の出力を貼付け推奨 |
+| `CORS_ALLOW_ORIGIN` | 空欄 | UI を別ドメインに建てる場合のみ |
+| `PUBLIC_BASE_URL` | 空欄 | カスタムドメイン設定後に追加 |
 
-> このリポジトリでは GitHub Actions から `wrangler deploy` を実行しません。以降のデプロイもすべて Cloudflare コンソール側で完結します。デプロイ状況は Cloudflare ダッシュボードの **Workers & Pages → 対象 Worker → Deployments** タブから確認できます。
+### デプロイ後の動作確認
 
-### デプロイ後の設定
+```bash
+curl -i https://<your-worker>.workers.dev/api/links
+# → 401 unauthorized が返れば成功（正しく認証が効いている）
+# → 503 なら API_TOKEN が未入力 / 24 文字未満 / 既知プレースホルダ
+```
 
-1. **必須**: Cloudflare ダッシュボード → Worker → Settings → Variables で
-   `API_TOKEN` を **Secret** として追加。値は `openssl rand -base64 32` の
-   ような 24 文字以上のランダム値。既知プレースホルダ（`dev-token-change-me`
-   など）は Worker が拒否します
-2. 動作確認: `curl -i https://<your-worker>/api/links` が **401** を返すこと
-   （503 なら `API_TOKEN` が未設定または弱い）
-3. （オプション）カスタムドメインを設定
-4. （推奨）組織運用なら [Cloudflare Access で API ホストを保護](./security#二線目-cloudflare-access推奨)
+`503` が返る場合は Cloudflare ダッシュボード → Worker → Settings →
+Variables で `API_TOKEN` を上書きしてください。
+
+### 任意・推奨の追加設定
+
+- カスタムドメイン（Settings → Triggers → Custom Domains）
+- [Cloudflare Access で API ホストを保護](./security#二線目-cloudflare-access推奨)（組織運用向け）
 
 ## 手動セットアップ
 
@@ -53,15 +60,11 @@ bun install
 # 3. Cloudflare にログイン
 wrangler login
 
-# 4. KV Namespace を作成
-wrangler kv namespace create SHORTLINKS
-# 出力された id を wrangler.toml に設定
+# 4. API_TOKEN を設定（必須）
+#    KV 名前空間は次の deploy が自動作成するため事前準備は不要
+openssl rand -base64 32 | wrangler secret put API_TOKEN
 
-# 5. API_TOKEN を設定
-wrangler secret put API_TOKEN
-# プロンプトでトークンを入力
-
-# 6. デプロイ
+# 5. デプロイ（KV が自動作成されバインドされる）
 bun run deploy
 ```
 
@@ -69,14 +72,21 @@ bun run deploy
 
 | 変数名 | 説明 | 必須 |
 |---|---|---|
-| `API_TOKEN` | API / MCP 認証用の Bearer token | Yes |
+| `API_TOKEN` | API / MCP 認証用の Bearer token（24 文字以上） | Yes |
+| `CORS_ALLOW_ORIGIN` | CORS allowlist（未設定で全許可） | No |
+| `PUBLIC_BASE_URL` | `shortUrl` に使う正本オリジン | No |
+| `CF_ACCOUNT_ID` / `CF_ANALYTICS_TOKEN` | 分析 API を使う場合のみ | No |
 
 ## Cloudflare リソース
 
-デプロイ時に以下のリソースが作成されます:
+1 クリックデプロイ時に以下のリソースが **自動で作成されバインド** されます。
+手動で ID を設定する必要はありません。
 
-- **KV Namespace** (`SHORTLINKS`) — slug → URL のマッピング保存
-- **Analytics Engine** (`ANALYTICS`) — クリックデータの記録
+- **KV Namespace** (`SHORTLINKS`) — slug → URL のマッピング保存。
+  Wrangler 4.45+ が `[[kv_namespaces]]` に `id` が無いことを検知して
+  `open-shortlink-SHORTLINKS` のような名前で新規作成する
+- **Analytics Engine** (`ANALYTICS`) — クリックデータの記録。
+  データセットは初回書き込みで自動作成
 
 ## ローカル開発
 
