@@ -3,7 +3,8 @@ import { Hono } from "hono";
 import { rateLimit } from "../src/middleware/rate-limit";
 import { cors } from "../src/middleware/cors";
 import { bearerAuth } from "../src/middleware/auth";
-import { createTestCtx, createTestEnv } from "./helpers/test-app";
+import { securityHeaders } from "../src/middleware/security-headers";
+import { TEST_TOKEN, createTestCtx, createTestEnv } from "./helpers/test-app";
 
 describe("rateLimit", () => {
   test("allows requests under the limit", async () => {
@@ -105,14 +106,22 @@ describe("rateLimit", () => {
     expect((await app.request("/", { headers: headersB })).status).toBe(200);
   });
 
-  test("falls back to X-Forwarded-For when no CF-Connecting-IP", async () => {
+  test("ignores X-Forwarded-For (spoofable header)", async () => {
+    // An attacker who rotates X-Forwarded-For must NOT bypass the limit.
+    // With no CF-Connecting-IP the middleware collapses every request to the
+    // same fallback key.
     const app = new Hono();
     app.use("*", rateLimit({ windowMs: 60_000, max: 1 }));
     app.get("/", (c) => c.text("ok"));
 
-    const headers = { "X-Forwarded-For": "10.0.0.1" };
-    expect((await app.request("/", { headers })).status).toBe(200);
-    expect((await app.request("/", { headers })).status).toBe(429);
+    expect(
+      (await app.request("/", { headers: { "X-Forwarded-For": "1.1.1.1" } }))
+        .status,
+    ).toBe(200);
+    expect(
+      (await app.request("/", { headers: { "X-Forwarded-For": "2.2.2.2" } }))
+        .status,
+    ).toBe(429);
   });
 
   test("uses 'unknown' key when no IP headers available", async () => {
@@ -126,7 +135,7 @@ describe("rateLimit", () => {
 });
 
 describe("cors", () => {
-  test("handles OPTIONS preflight", async () => {
+  test("handles OPTIONS preflight without Origin defaults to *", async () => {
     const app = new Hono();
     app.use("*", cors);
     app.get("/", (c) => c.text("ok"));
@@ -137,13 +146,78 @@ describe("cors", () => {
     expect(res.headers.get("Access-Control-Allow-Methods")).toContain("POST");
   });
 
-  test("adds CORS headers to responses", async () => {
+  test("adds CORS headers to responses when allowlist unset", async () => {
     const app = new Hono();
     app.use("*", cors);
     app.get("/", (c) => c.text("ok"));
 
     const res = await app.request("/");
     expect(res.headers.get("Access-Control-Allow-Origin")).toBe("*");
+  });
+
+  test("echoes Origin when allowlist matches", async () => {
+    const app = new Hono();
+    app.use("*", cors);
+    app.get("/", (c) => c.text("ok"));
+
+    const env = createTestEnv();
+    env.CORS_ALLOW_ORIGIN = "https://ui.example.com,https://admin.example.com";
+    const res = await app.request(
+      "/",
+      { headers: { origin: "https://ui.example.com" } },
+      env,
+      createTestCtx(),
+    );
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBe(
+      "https://ui.example.com",
+    );
+    expect(res.headers.get("Vary")).toBe("Origin");
+  });
+
+  test("omits ACAO when Origin not in allowlist", async () => {
+    const app = new Hono();
+    app.use("*", cors);
+    app.get("/", (c) => c.text("ok"));
+
+    const env = createTestEnv();
+    env.CORS_ALLOW_ORIGIN = "https://ui.example.com";
+    const res = await app.request(
+      "/",
+      { headers: { origin: "https://evil.example" } },
+      env,
+      createTestCtx(),
+    );
+    expect(res.headers.get("Access-Control-Allow-Origin")).toBeNull();
+  });
+
+  test("preflight from unknown origin returns 403", async () => {
+    const app = new Hono();
+    app.use("*", cors);
+    app.get("/", (c) => c.text("ok"));
+
+    const env = createTestEnv();
+    env.CORS_ALLOW_ORIGIN = "https://ui.example.com";
+    const res = await app.request(
+      "/",
+      { method: "OPTIONS", headers: { origin: "https://evil.example" } },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(403);
+  });
+});
+
+describe("securityHeaders", () => {
+  test("sets baseline hardening headers", async () => {
+    const app = new Hono();
+    app.use("*", securityHeaders);
+    app.get("/", (c) => c.text("ok"));
+
+    const res = await app.request("/");
+    expect(res.headers.get("X-Content-Type-Options")).toBe("nosniff");
+    expect(res.headers.get("X-Frame-Options")).toBe("DENY");
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
+    expect(res.headers.get("Strict-Transport-Security")).toContain("max-age=");
   });
 });
 
@@ -156,6 +230,7 @@ describe("bearerAuth", () => {
     const env = createTestEnv();
     const res = await app.request("/", {}, env, createTestCtx());
     expect(res.status).toBe(401);
+    expect(res.headers.get("WWW-Authenticate")).toContain("Bearer");
   });
 
   test("accepts correct token", async () => {
@@ -166,7 +241,7 @@ describe("bearerAuth", () => {
     const env = createTestEnv();
     const res = await app.request(
       "/",
-      { headers: { Authorization: "Bearer test-token" } },
+      { headers: { Authorization: `Bearer ${TEST_TOKEN}` } },
       env,
       createTestCtx(),
     );
@@ -186,5 +261,50 @@ describe("bearerAuth", () => {
       createTestCtx(),
     );
     expect(res.status).toBe(401);
+  });
+
+  test("returns 503 when API_TOKEN is unset", async () => {
+    const app = new Hono();
+    app.use("*", bearerAuth);
+    app.get("/", (c) => c.text("ok"));
+
+    const env = createTestEnv({ apiToken: "" });
+    const res = await app.request(
+      "/",
+      { headers: { Authorization: `Bearer ${TEST_TOKEN}` } },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(503);
+  });
+
+  test("returns 503 when API_TOKEN is a well-known placeholder", async () => {
+    const app = new Hono();
+    app.use("*", bearerAuth);
+    app.get("/", (c) => c.text("ok"));
+
+    const env = createTestEnv({ apiToken: "dev-token-change-me" });
+    const res = await app.request(
+      "/",
+      { headers: { Authorization: `Bearer dev-token-change-me` } },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(503);
+  });
+
+  test("returns 503 when API_TOKEN is shorter than 24 chars", async () => {
+    const app = new Hono();
+    app.use("*", bearerAuth);
+    app.get("/", (c) => c.text("ok"));
+
+    const env = createTestEnv({ apiToken: "short-token-abc" });
+    const res = await app.request(
+      "/",
+      { headers: { Authorization: "Bearer short-token-abc" } },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(503);
   });
 });

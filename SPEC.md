@@ -33,9 +33,12 @@
 
 ## 環境変数
 
-| 変数名 | 説明 | 設定方法 |
-|---|---|---|
-| `API_TOKEN` | API / MCP 認証用 Bearer token | `wrangler secret put API_TOKEN` |
+| 変数名 | 必須 | 説明 | 設定方法 |
+|---|---|---|---|
+| `API_TOKEN` | ◯ | API / MCP 認証用 Bearer token。24文字以上、かつ `dev-token-change-me` などの既知プレースホルダは拒否。 | `wrangler secret put API_TOKEN` |
+| `CF_ACCOUNT_ID` | 分析API使用時 | Cloudflare アカウント ID | `wrangler secret put CF_ACCOUNT_ID` |
+| `CF_ANALYTICS_TOKEN` | 分析API使用時 | Analytics Engine 読み取り権限付き API トークン | `wrangler secret put CF_ANALYTICS_TOKEN` |
+| `CORS_ALLOW_ORIGIN` | 任意 | カンマ区切りの CORS allowlist。未設定または `*` で全許可。 | `wrangler secret put CORS_ALLOW_ORIGIN` |
 
 ## ストレージ設計
 
@@ -219,7 +222,8 @@ Metadata: { createdAt: number, expiresAt?: number }
 
 - NanoID ベースの base62 (a-z, A-Z, 0-9)
 - デフォルト長: 6文字 (62^6 ≒ 568億パターン)
-- カスタムスラッグ: 英数字、ハイフン、アンダースコア許可。先頭に `api` や `mcp` は禁止（ルーティング衝突防止）
+- カスタムスラッグ: 英数字、ハイフン、アンダースコア許可 (最大64文字)
+- 予約済み: `api`, `mcp` プレフィックス（ルーティング衝突防止）および `health`, `healthz`, `ready`, `readyz`, `metrics`, `favicon.ico`, `robots.txt`, `sitemap.xml`, `.well-known`（将来の well-known パス用）
 
 ## AI User-Agent 判定
 
@@ -236,7 +240,27 @@ meta-externalagent
 
 - リダイレクトエンドポイント (`GET /:slug`): 認証なし
 - API (`/api/*`) / MCP (`/mcp`): `Authorization: Bearer <API_TOKEN>` ヘッダー必須
-- 認証失敗時: 401 Unauthorized
+- 認証失敗時: 401 Unauthorized（`WWW-Authenticate: Bearer realm="open-shortlink"` 付与）
+- 比較は定数時間比較で実施（タイミング攻撃耐性）
+- `API_TOKEN` が未設定または弱い（24文字未満・既知プレースホルダ）場合、サーバーは 503 を返して起動を拒否する
+
+## セキュリティ対策
+
+- **URL バリデーション**: 短縮対象 URL は HTTP(S) のみ許可し、次のホストは拒否:
+  - `localhost`, `*.local`, `*.internal`, `*.localhost`, `*.onion` などの内部 TLD
+  - ループバック (`127.0.0.0/8`, `::1`)
+  - RFC1918 プライベート範囲 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
+  - リンクローカル (`169.254.0.0/16`, `fe80::/10`) ※ クラウドメタデータ `169.254.169.254` を含む
+  - CGNAT (`100.64.0.0/10`)
+  - マルチキャスト (`224.0.0.0/4`) / 予約 (`240.0.0.0/4`)
+  - IPv6 ULA (`fc00::/7`) / マルチキャスト (`ff00::/8`) / IPv4-mapped (`::ffff:*`) / NAT64
+  - 埋め込み認証情報 (`user:pass@host`)
+  - 2048 文字を超える URL
+- **Slug バリデーション**: `/:slug` および Analytics 系エンドポイントで `isValidSlug` を適用。`api`, `mcp` プレフィックスに加え、`health`, `metrics` などの予約パスを禁止。
+- **HTTP セキュリティヘッダー**: 全レスポンスに `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Strict-Transport-Security`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Permissions-Policy` を付与。
+- **レート制限**: 信頼できる `cf-connecting-ip` のみをキーに使用（`x-forwarded-for` は受信しない）。
+- **リクエストボディ上限**: `POST /api/links` は 16KiB、`POST /mcp` は 256KiB。
+- **エラーメッセージ**: MCP の内部エラーは `tool execution failed` として外部露出せず、詳細はサーバログのみに出力。
 
 ## レート制限
 
