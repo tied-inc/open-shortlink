@@ -1,6 +1,9 @@
 export interface LinkMetadata {
   createdAt: number;
   expiresAt?: number;
+  // Embedded when the serialized metadata fits within the KV metadata budget,
+  // so that `list` can return URLs without an extra `kv.get` per key.
+  url?: string;
 }
 
 export interface Link {
@@ -13,6 +16,22 @@ export interface Link {
 export interface ListResult {
   links: Link[];
   cursor?: string;
+}
+
+// Cloudflare KV metadata is capped at 1024 bytes of JSON. Leave a small margin
+// for JSON-escape overhead on URLs that contain characters like quotes.
+const KV_METADATA_LIMIT = 1024;
+const KV_METADATA_MARGIN = 16;
+
+function buildMetadata(
+  createdAt: number,
+  expiresAt: number | undefined,
+  url: string,
+): LinkMetadata {
+  const withUrl: LinkMetadata = { createdAt, expiresAt, url };
+  const size = new TextEncoder().encode(JSON.stringify(withUrl)).length;
+  if (size <= KV_METADATA_LIMIT - KV_METADATA_MARGIN) return withUrl;
+  return { createdAt, expiresAt };
 }
 
 export class LinkStore {
@@ -39,7 +58,7 @@ export class LinkStore {
   async put(slug: string, url: string, expiresIn?: number): Promise<Link> {
     const now = Date.now();
     const expiresAt = expiresIn ? now + expiresIn * 1000 : undefined;
-    const metadata: LinkMetadata = { createdAt: now, expiresAt };
+    const metadata = buildMetadata(now, expiresAt, url);
     await this.kv.put(slug, url, {
       metadata,
       ...(expiresIn ? { expirationTtl: expiresIn } : {}),
@@ -59,7 +78,8 @@ export class LinkStore {
 
     const links: Link[] = await Promise.all(
       result.keys.map(async (key) => {
-        const url = (await this.kv.get(key.name)) ?? "";
+        const embedded = key.metadata?.url;
+        const url = embedded ?? (await this.kv.get(key.name)) ?? "";
         return {
           slug: key.name,
           url,
