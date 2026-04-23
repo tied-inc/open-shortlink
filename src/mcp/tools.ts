@@ -18,11 +18,39 @@ export interface ToolDefinition {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  outputSchema?: Record<string, unknown>;
   handler: (
     args: Record<string, unknown>,
     ctx: ToolContext,
   ) => Promise<unknown>;
 }
+
+const linkResponseSchema = {
+  type: "object",
+  required: ["slug", "url", "shortUrl", "createdAt"],
+  properties: {
+    slug: { type: "string" },
+    url: { type: "string" },
+    shortUrl: { type: "string" },
+    createdAt: { type: "number" },
+    expiresAt: { type: "number" },
+  },
+} as const;
+
+const periodEnum = ["1d", "7d", "30d", "90d"] as const;
+
+const countsByKeySchema = (key: string) =>
+  ({
+    type: "array",
+    items: {
+      type: "object",
+      required: [key, "clicks"],
+      properties: {
+        [key]: { type: "string" },
+        clicks: { type: "number" },
+      },
+    },
+  }) as const;
 
 function linkService(ctx: ToolContext): LinkService {
   return new LinkService(new LinkStore(ctx.env.SHORTLINKS), ctx.baseUrl);
@@ -85,6 +113,7 @@ export const tools: ToolDefinition[] = [
         },
       },
     },
+    outputSchema: linkResponseSchema,
     handler: async (args, ctx) => {
       const input = createLinkArgs.parse(args);
       try {
@@ -110,6 +139,14 @@ export const tools: ToolDefinition[] = [
         cursor: { type: "string", description: "ページネーションカーソル" },
       },
     },
+    outputSchema: {
+      type: "object",
+      required: ["links"],
+      properties: {
+        links: { type: "array", items: linkResponseSchema },
+        cursor: { type: "string" },
+      },
+    },
     handler: async (args, ctx) => {
       const input = listLinksArgs.parse(args);
       return linkService(ctx).list(input.limit, input.cursor);
@@ -125,6 +162,7 @@ export const tools: ToolDefinition[] = [
         slug: { type: "string", description: "対象の slug" },
       },
     },
+    outputSchema: linkResponseSchema,
     handler: async (args, ctx) => {
       const input = slugArgs.parse(args);
       try {
@@ -144,6 +182,11 @@ export const tools: ToolDefinition[] = [
       properties: {
         slug: { type: "string", description: "対象の slug" },
       },
+    },
+    outputSchema: {
+      type: "object",
+      required: ["deleted"],
+      properties: { deleted: { type: "string" } },
     },
     handler: async (args, ctx) => {
       const input = slugArgs.parse(args);
@@ -166,9 +209,32 @@ export const tools: ToolDefinition[] = [
         slug: { type: "string" },
         period: {
           type: "string",
-          enum: ["1d", "7d", "30d", "90d"],
+          enum: periodEnum,
           description: "集計期間（デフォルト 7d）",
         },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      required: [
+        "slug",
+        "period",
+        "totalClicks",
+        "uniqueCountries",
+        "aiClicks",
+        "humanClicks",
+        "topReferers",
+        "topCountries",
+      ],
+      properties: {
+        slug: { type: "string" },
+        period: { type: "string", enum: periodEnum },
+        totalClicks: { type: "number" },
+        uniqueCountries: { type: "number" },
+        aiClicks: { type: "number" },
+        humanClicks: { type: "number" },
+        topReferers: countsByKeySchema("referer"),
+        topCountries: countsByKeySchema("country"),
       },
     },
     handler: async (args, ctx) => {
@@ -187,10 +253,18 @@ export const tools: ToolDefinition[] = [
       properties: {
         period: {
           type: "string",
-          enum: ["1d", "7d", "30d", "90d"],
+          enum: periodEnum,
           description: "集計期間（デフォルト 7d）",
         },
         limit: { type: "number", description: "取得件数（デフォルト 10）" },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      required: ["period", "links"],
+      properties: {
+        period: { type: "string", enum: periodEnum },
+        links: countsByKeySchema("slug"),
       },
     },
     handler: async (args, ctx) => {
@@ -208,9 +282,28 @@ export const tools: ToolDefinition[] = [
       properties: {
         period: {
           type: "string",
-          enum: ["1d", "7d", "30d", "90d"],
+          enum: periodEnum,
           description: "集計期間（デフォルト 7d）",
         },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      required: [
+        "period",
+        "totalClicks",
+        "aiClicks",
+        "humanClicks",
+        "aiRatio",
+        "byBot",
+      ],
+      properties: {
+        period: { type: "string", enum: periodEnum },
+        totalClicks: { type: "number" },
+        aiClicks: { type: "number" },
+        humanClicks: { type: "number" },
+        aiRatio: { type: "number" },
+        byBot: countsByKeySchema("bot"),
       },
     },
     handler: async (args, ctx) => {

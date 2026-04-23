@@ -531,4 +531,100 @@ describe("MCP streamable-http compat", () => {
     expect(data.result.structuredContent.slug).toBe("sc");
     expect(data.result.structuredContent.url).toBe("https://example.com");
   });
+
+  test("tools/call keeps text content alongside structuredContent for backwards compat", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "https://example.com", slug: "bc" },
+      },
+    });
+    expect(Array.isArray(data.result.content)).toBe(true);
+    expect(data.result.content[0].type).toBe("text");
+    const parsed = JSON.parse(data.result.content[0].text);
+    expect(parsed).toEqual(data.result.structuredContent);
+  });
+
+  test("tools/list advertises outputSchema for every tool", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+    });
+    for (const tool of data.result.tools) {
+      expect(tool.outputSchema).toBeDefined();
+      expect(tool.outputSchema.type).toBe("object");
+    }
+  });
+
+  test("create_link structuredContent matches its outputSchema shape", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "https://example.com", slug: "os" },
+      },
+    });
+    const sc = data.result.structuredContent;
+    expect(typeof sc.slug).toBe("string");
+    expect(typeof sc.url).toBe("string");
+    expect(typeof sc.shortUrl).toBe("string");
+    expect(typeof sc.createdAt).toBe("number");
+  });
+
+  test("list_links structuredContent matches its outputSchema shape", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "https://example.com", slug: "ls1" },
+      },
+    });
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "list_links", arguments: {} },
+    });
+    const sc = data.result.structuredContent;
+    expect(Array.isArray(sc.links)).toBe(true);
+    expect(sc.links[0].slug).toBe("ls1");
+    expect(sc.links[0].shortUrl).toContain("ls1");
+  });
+
+  test("delete_link structuredContent returns deleted slug", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "https://example.com", slug: "dl" },
+      },
+    });
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 2,
+      method: "tools/call",
+      params: { name: "delete_link", arguments: { slug: "dl" } },
+    });
+    expect(data.result.structuredContent).toEqual({ deleted: "dl" });
+  });
 });
