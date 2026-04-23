@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Bindings } from "../bindings";
 import { LinkStore } from "../storage/kv";
 import { LinkService } from "../services/links";
-import { AnalyticsQuery, type Period, type Interval } from "../analytics/query";
+import { AnalyticsQuery, type Interval, type Period } from "../analytics/query";
 
 export interface ToolContext {
   env: Bindings;
@@ -69,6 +69,8 @@ function analytics(ctx: ToolContext): AnalyticsQuery {
 }
 
 const periodSchema = z.enum(["1d", "7d", "30d", "90d"]).default("7d");
+const intervalSchema = z.enum(["1h", "1d"]).default("1d");
+const intervalEnum = ["1h", "1d"] as const;
 
 const createLinkArgs = z.object({
   url: z.string(),
@@ -87,6 +89,12 @@ const slugArgs = z.object({ slug: z.string() });
 const analyticsArgs = z.object({
   slug: z.string(),
   period: periodSchema.optional(),
+});
+
+const timeseriesArgs = z.object({
+  slug: z.string(),
+  period: periodSchema.optional(),
+  interval: intervalSchema.optional(),
 });
 
 const topLinksArgs = z.object({
@@ -230,6 +238,59 @@ export const tools: ToolDefinition[] = [
         input.slug,
         input.period ?? "7d",
       );
+    },
+  },
+  {
+    name: "get_timeseries",
+    description: "特定の slug の時系列クリックデータを取得する",
+    inputSchema: {
+      type: "object",
+      required: ["slug"],
+      properties: {
+        slug: { type: "string" },
+        period: {
+          type: "string",
+          enum: periodEnum,
+          description: "集計期間（デフォルト 7d）",
+        },
+        interval: {
+          type: "string",
+          enum: intervalEnum,
+          description: "集計間隔（デフォルト 1d）",
+        },
+      },
+    },
+    outputSchema: {
+      type: "object",
+      required: ["slug", "period", "interval", "data"],
+      properties: {
+        slug: { type: "string" },
+        period: { type: "string", enum: periodEnum },
+        interval: { type: "string", enum: intervalEnum },
+        data: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["timestamp", "clicks", "aiClicks"],
+            properties: {
+              timestamp: { type: "string" },
+              clicks: { type: "number" },
+              aiClicks: { type: "number" },
+            },
+          },
+        },
+      },
+    },
+    handler: async (args, ctx) => {
+      const input = timeseriesArgs.parse(args);
+      const period: Period = input.period ?? "7d";
+      const interval: Interval = input.interval ?? "1d";
+      const data = await analytics(ctx).getTimeseries(
+        input.slug,
+        period,
+        interval,
+      );
+      return { slug: input.slug, period, interval, data };
     },
   },
   {
