@@ -318,9 +318,9 @@ GET /:slug
 
 ## デプロイ
 
-- **Deploy to Cloudflare ボタン**: README に配置。ワンクリックで fork + デプロイ
+- **Deploy to Cloudflare ボタン**: README に配置。ワンクリックで fork + Cloudflare コンソールでのデプロイまで完結
 - **手動**: `wrangler deploy`
-- **CI/CD**: GitHub Actions (`main` push で自動デプロイ)
+- **CI/CD**: Cloudflare Workers Builds（`main` push をコンソール側で検知して自動デプロイ）。GitHub Actions からの `wrangler deploy` は行わない
 - **ドキュメント**: GitHub Pages (VitePress)
 
 ## プロジェクト構成
@@ -344,8 +344,7 @@ open-shortlink/
 │       └── validate.ts       # URL バリデーション
 ├── docs/                     # VitePress ドキュメント
 ├── .github/workflows/
-│   ├── deploy.yml            # Worker デプロイ
-│   └── docs.yml              # ドキュメントデプロイ
+│   └── docs.yml              # ドキュメントデプロイ（Worker のデプロイは Cloudflare Workers Builds 側）
 ├── wrangler.toml
 ├── package.json
 └── tsconfig.json
