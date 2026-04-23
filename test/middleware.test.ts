@@ -33,7 +33,37 @@ describe("rateLimit", () => {
     await app.request("/");
     const res = await app.request("/");
     expect(res.status).toBe(429);
-    expect(res.headers.get("Retry-After")).toBeDefined();
+
+    const retryAfter = Number(res.headers.get("Retry-After"));
+    expect(Number.isFinite(retryAfter)).toBe(true);
+    expect(retryAfter).toBeGreaterThan(0);
+    expect(retryAfter).toBeLessThanOrEqual(60);
+
+    expect(res.headers.get("X-RateLimit-Limit")).toBe("2");
+    expect(res.headers.get("X-RateLimit-Remaining")).toBe("0");
+    const reset = Number(res.headers.get("X-RateLimit-Reset"));
+    expect(Number.isFinite(reset)).toBe(true);
+    expect(reset).toBeGreaterThan(Math.floor(Date.now() / 1000));
+
+    const body = (await res.json()) as { error: string; retryAfter: number };
+    expect(body.error).toBe("rate limit exceeded");
+    expect(body.retryAfter).toBe(retryAfter);
+  });
+
+  test("decrements X-RateLimit-Remaining on each request", async () => {
+    const app = new Hono();
+    app.use(
+      "*",
+      rateLimit({ windowMs: 60_000, max: 3, keyFn: () => "fixed" }),
+    );
+    app.get("/", (c) => c.text("ok"));
+
+    const r1 = await app.request("/");
+    expect(r1.headers.get("X-RateLimit-Remaining")).toBe("2");
+    const r2 = await app.request("/");
+    expect(r2.headers.get("X-RateLimit-Remaining")).toBe("1");
+    const r3 = await app.request("/");
+    expect(r3.headers.get("X-RateLimit-Remaining")).toBe("0");
   });
 
   test("isolates different keys", async () => {
