@@ -39,6 +39,13 @@ describe("isValidSlug", () => {
     expect(isValidSlug("api-links")).toBe(false);
   });
 
+  test("rejects reserved exact names", () => {
+    expect(isValidSlug("health")).toBe(false);
+    expect(isValidSlug("healthz")).toBe(false);
+    expect(isValidSlug("metrics")).toBe(false);
+    expect(isValidSlug("HEALTH")).toBe(false);
+  });
+
   test("rejects slugs longer than 64 chars", () => {
     expect(isValidSlug("a".repeat(65))).toBe(false);
     expect(isValidSlug("a".repeat(64))).toBe(true);

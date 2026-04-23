@@ -355,6 +355,106 @@ describe("Unexpected internal errors", () => {
   });
 });
 
+describe("POST /api/links hardening", () => {
+  test("blocks SSRF target (localhost)", async () => {
+    const app = new Hono<{ Bindings: Bindings }>();
+    app.route("/api", apiRoute);
+    const env = createTestEnv();
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "http://127.0.0.1/admin" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("blocks metadata IP", async () => {
+    const app = new Hono<{ Bindings: Bindings }>();
+    app.route("/api", apiRoute);
+    const env = createTestEnv();
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "http://169.254.169.254/latest/" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("blocks RFC1918 and internal TLD", async () => {
+    const app = new Hono<{ Bindings: Bindings }>();
+    app.route("/api", apiRoute);
+    const env = createTestEnv();
+    for (const url of [
+      "http://192.168.1.1",
+      "http://10.0.0.1",
+      "http://172.16.0.1",
+      "http://intranet.local/",
+      "http://service.internal/",
+    ]) {
+      const res = await req(
+        app,
+        "/api/links",
+        {
+          method: "POST",
+          headers: { ...authHeader(), "content-type": "application/json" },
+          body: JSON.stringify({ url }),
+        },
+        env,
+      );
+      expect(res.status).toBe(400);
+    }
+  });
+
+  test("rejects oversized POST body with 413", async () => {
+    const app = new Hono<{ Bindings: Bindings }>();
+    app.route("/api", apiRoute);
+    const env = createTestEnv();
+    const body = JSON.stringify({
+      url: "https://example.com",
+      slug: "abc",
+      extra: "x".repeat(20 * 1024),
+    });
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: {
+          ...authHeader(),
+          "content-type": "application/json",
+          "content-length": String(body.length),
+        },
+        body,
+      },
+      env,
+    );
+    expect(res.status).toBe(413);
+  });
+
+  test("GET /api/links/:slug rejects invalid slug with 400", async () => {
+    const app = new Hono<{ Bindings: Bindings }>();
+    app.route("/api", apiRoute);
+    const env = createTestEnv();
+    const res = await req(
+      app,
+      "/api/links/" + encodeURIComponent("bad slug"),
+      { method: "GET", headers: authHeader() },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("Analytics endpoints without credentials", () => {
   test("return 503 when CF_ACCOUNT_ID / CF_ANALYTICS_TOKEN are missing", async () => {
     const app = buildApp();

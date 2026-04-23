@@ -10,10 +10,16 @@ import {
   LinkValidationError,
 } from "../services/links";
 import { AnalyticsQuery, type Period, type Interval } from "../analytics/query";
+import { isValidSlug } from "../lib/slug";
 
 export const apiRoute = new Hono<{ Bindings: Bindings }>();
 
 apiRoute.use("*", bearerAuth);
+
+// Upper bound on JSON payloads. `url` is capped to 2048 chars by the
+// validator; any body substantially larger than that is either malformed or
+// hostile.
+const MAX_JSON_BODY_BYTES = 16 * 1024;
 
 function getBaseUrl(c: { req: { url: string } }): string {
   const url = new URL(c.req.url);
@@ -42,7 +48,20 @@ const createSchema = z.object({
 });
 
 apiRoute.post("/links", async (c) => {
-  const body = await c.req.json().catch(() => null);
+  const contentLength = Number(c.req.header("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > MAX_JSON_BODY_BYTES) {
+    return c.json({ error: "request body too large" }, 413);
+  }
+  const raw = await c.req.text().catch(() => "");
+  if (raw.length > MAX_JSON_BODY_BYTES) {
+    return c.json({ error: "request body too large" }, 413);
+  }
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    body = null;
+  }
   const parsed = createSchema.safeParse(body);
   if (!parsed.success) {
     return c.json({ error: "invalid request body" }, 400);
@@ -64,18 +83,18 @@ apiRoute.post("/links", async (c) => {
 });
 
 apiRoute.get("/links", async (c) => {
-  const limit = Number(c.req.query("limit") ?? "20");
+  const limit = parseLimit(c.req.query("limit"), 20);
   const cursor = c.req.query("cursor");
   const service = getService(c.env, getBaseUrl(c));
-  const result = await service.list(
-    Number.isFinite(limit) ? limit : 20,
-    cursor,
-  );
+  const result = await service.list(limit, cursor);
   return c.json(result);
 });
 
 apiRoute.get("/links/:slug", async (c) => {
   const slug = c.req.param("slug");
+  if (!isValidSlug(slug)) {
+    return c.json({ error: "invalid slug" }, 400);
+  }
   const service = getService(c.env, getBaseUrl(c));
   try {
     const link = await service.get(slug);
@@ -90,6 +109,9 @@ apiRoute.get("/links/:slug", async (c) => {
 
 apiRoute.delete("/links/:slug", async (c) => {
   const slug = c.req.param("slug");
+  if (!isValidSlug(slug)) {
+    return c.json({ error: "invalid slug" }, 400);
+  }
   const service = getService(c.env, getBaseUrl(c));
   try {
     await service.delete(slug);
@@ -122,6 +144,14 @@ function parseInterval(
     : fallback;
 }
 
+function parseLimit(input: string | undefined, fallback: number): number {
+  const n = Number(input);
+  if (!Number.isFinite(n)) return fallback;
+  const floored = Math.floor(n);
+  if (floored <= 0) return fallback;
+  return Math.min(floored, 100);
+}
+
 function requireAnalytics(
   env: Bindings,
 ): AnalyticsQuery | Response {
@@ -142,11 +172,8 @@ apiRoute.get("/analytics/top", async (c) => {
   const a = requireAnalytics(c.env);
   if (a instanceof Response) return a;
   const period = parsePeriod(c.req.query("period"));
-  const limit = Number(c.req.query("limit") ?? "10");
-  const top = await a.getTopLinks(
-    period,
-    Number.isFinite(limit) ? limit : 10,
-  );
+  const limit = parseLimit(c.req.query("limit"), 10);
+  const top = await a.getTopLinks(period, limit);
   return c.json({ period, links: top });
 });
 
@@ -162,6 +189,9 @@ apiRoute.get("/analytics/:slug/timeseries", async (c) => {
   const a = requireAnalytics(c.env);
   if (a instanceof Response) return a;
   const slug = c.req.param("slug");
+  if (!isValidSlug(slug)) {
+    return c.json({ error: "invalid slug" }, 400);
+  }
   const period = parsePeriod(c.req.query("period"));
   const interval = parseInterval(c.req.query("interval"));
   const data = await a.getTimeseries(slug, period, interval);
@@ -172,6 +202,9 @@ apiRoute.get("/analytics/:slug", async (c) => {
   const a = requireAnalytics(c.env);
   if (a instanceof Response) return a;
   const slug = c.req.param("slug");
+  if (!isValidSlug(slug)) {
+    return c.json({ error: "invalid slug" }, 400);
+  }
   const period = parsePeriod(c.req.query("period"));
   const stats = await a.getSlugAnalytics(slug, period);
   return c.json(stats);

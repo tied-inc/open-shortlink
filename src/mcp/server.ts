@@ -2,6 +2,11 @@ import { Hono } from "hono";
 import type { Bindings } from "../bindings";
 import { bearerAuth } from "../middleware/auth";
 import { tools, toolMap, type ToolContext } from "./tools";
+import {
+  LinkConflictError,
+  LinkNotFoundError,
+  LinkValidationError,
+} from "../services/links";
 
 // Minimal JSON-RPC 2.0 + MCP handler suited to stateless Workers.
 // Implements the Streamable HTTP transport subset required by real MCP
@@ -29,6 +34,11 @@ const SUPPORTED_PROTOCOL_VERSIONS = [
 ];
 const SERVER_INFO = { name: "open-shortlink", version: "0.1.0" };
 
+// Upper bound on a single JSON-RPC request body. Generous enough for legitimate
+// batch calls but small enough to stop a caller from feeding a multi-megabyte
+// payload into JSON.parse.
+const MAX_BODY_BYTES = 256 * 1024;
+
 export const mcpRoute = new Hono<{ Bindings: Bindings }>();
 
 mcpRoute.use("*", bearerAuth);
@@ -45,10 +55,22 @@ mcpRoute.post("/", async (c) => {
     );
   }
 
-  const body = (await c.req.json().catch(() => null)) as
-    | JsonRpcRequest
-    | JsonRpcRequest[]
-    | null;
+  const contentLength = Number(c.req.header("content-length"));
+  if (Number.isFinite(contentLength) && contentLength > MAX_BODY_BYTES) {
+    return c.json(rpcError(null, -32600, "request body too large"), 413);
+  }
+
+  const raw = await c.req.text().catch(() => "");
+  if (raw.length > MAX_BODY_BYTES) {
+    return c.json(rpcError(null, -32600, "request body too large"), 413);
+  }
+
+  let body: JsonRpcRequest | JsonRpcRequest[] | null = null;
+  try {
+    body = JSON.parse(raw) as JsonRpcRequest | JsonRpcRequest[];
+  } catch {
+    body = null;
+  }
   if (!body) {
     return c.json(rpcError(null, -32700, "parse error"), 400);
   }
@@ -110,6 +132,36 @@ function negotiateProtocolVersion(requested: unknown): string {
   return PROTOCOL_VERSION;
 }
 
+// Known domain errors carry user-safe messages (bad input, conflict, missing
+// resource). For anything else the message could originate from KV, fetch(),
+// or an unexpected runtime exception — fall back to a generic string so we
+// don't leak internals via MCP responses. A Zod validation failure is also
+// safe: it only describes the client-supplied argument shape.
+const SAFE_ERROR_PREFIXES = [
+  "Analytics query is not configured", // tools.ts analytics() helper
+];
+
+function safeToolErrorMessage(err: unknown): string {
+  if (
+    err instanceof LinkValidationError ||
+    err instanceof LinkConflictError ||
+    err instanceof LinkNotFoundError
+  ) {
+    return err.message;
+  }
+  const message = err instanceof Error ? err.message : String(err);
+  if (err instanceof Error && err.name === "ZodError") return message;
+  if (SAFE_ERROR_PREFIXES.some((p) => message.startsWith(p))) return message;
+  console.error(
+    JSON.stringify({
+      level: "error",
+      where: "mcp.tools/call",
+      message,
+    }),
+  );
+  return "tool execution failed";
+}
+
 async function handleRpc(
   req: JsonRpcRequest,
   ctx: ToolContext,
@@ -164,10 +216,9 @@ async function handleRpc(
             structuredContent: result,
           });
         } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
           return rpcResult(id, {
             isError: true,
-            content: [{ type: "text", text: message }],
+            content: [{ type: "text", text: safeToolErrorMessage(err) }],
           });
         }
       }
@@ -178,8 +229,18 @@ async function handleRpc(
     }
   } catch (err) {
     if (isNotification) return null;
-    const message = err instanceof Error ? err.message : String(err);
-    return rpcError(id, -32603, message);
+    // Do not echo arbitrary runtime error messages to the RPC client; they can
+    // leak KV/Analytics error detail or internal paths. The full error is
+    // logged via the global onError handler instead.
+    console.error(
+      JSON.stringify({
+        level: "error",
+        where: "mcp.handleRpc",
+        method: req.method,
+        message: err instanceof Error ? err.message : String(err),
+      }),
+    );
+    return rpcError(id, -32603, "internal error");
   }
 }
 
