@@ -1,8 +1,23 @@
 import type { MiddlewareHandler } from "hono";
 
-// Simple in-memory sliding-window rate limit. Runs per Worker isolate.
-// Sufficient for basic abuse mitigation on a single-tenant deployment;
-// for global limits use Cloudflare's Rate Limiting Rules via the dashboard.
+// Per-isolate in-memory rate limiter. State is NOT shared between Worker
+// isolates — each Cloudflare region/isolate keeps its own counter, so a
+// determined attacker distributed across many edges can exceed the intended
+// global rate.
+//
+// This is intentional: the limiter serves as a local spike guard (protects a
+// single isolate from burst abuse and cheap retries from one client) while
+// global enforcement is delegated to Cloudflare Rate Limiting Rules
+// configured at the zone/route level via the dashboard. See
+// docs/guide/deploy.md ("レート制限") for the recommended configuration.
+//
+// Trade-offs of alternatives considered:
+//   - Durable Objects: strongly consistent global counter, but adds a
+//     round-trip on every request and costs extra on the Workers paid plan.
+//   - KV: eventually-consistent counter, cheap but too loose to meaningfully
+//     limit bursts at the edge.
+//   - Cloudflare Rate Limiting Rules (chosen): managed, global, zero code,
+//     configured per-route in the Cloudflare dashboard.
 
 export interface RateLimitOptions {
   windowMs: number;

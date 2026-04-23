@@ -79,6 +79,51 @@ Cloudflare ダッシュボードから設定:
 
 ドメインの DNS が Cloudflare で管理されている必要がある。
 
+## レート制限
+
+Open Shortlink は二段構えでレート制限を行う。
+
+### 1. Worker 組込み（per-isolate）
+
+`src/middleware/rate-limit.ts` の in-memory 実装が `/api/*` と `/mcp`, `/mcp/*` に
+対して IP 単位で動く（既定: 60 秒あたり 120 リクエスト）。
+
+- 状態は Worker の isolate ごとに保持される。Cloudflare は世界中の複数 isolate
+  で並列にリクエストを処理するため、**グローバルなリミットにはならない**。
+- 目的は「1 isolate に対するバーストや雑なリトライを弾く」スパイク防止の
+  セーフティネット。
+- 超過時は `429 Too Many Requests` と `Retry-After` / `X-RateLimit-*` ヘッダを
+  返す。
+
+### 2. Cloudflare Rate Limiting Rules（推奨・グローバル）
+
+シングルテナント運用ではダッシュボードの Rate Limiting Rules による enforcement
+を推奨する。エッジでグローバルに効き、Worker 実装を増やさずに済む。
+
+設定手順:
+
+1. Cloudflare ダッシュボード → 対象ゾーン → **Security → WAF → Rate limiting rules**
+2. "Create rule" を選択
+3. **Match**: 例として `/api/` と `/mcp` を対象にする
+   - Field: `URI Path`
+   - Operator: `starts with`
+   - Value: `/api/` または `/mcp`
+4. **Rate**: 例 `120 requests per 1 minute`、Characteristics は `IP`
+5. **Action**: `Block`（または `Managed Challenge`）
+6. 保存
+
+> Rate Limiting Rules は有料プランを含む一部プランで利用可能。無料プランで
+> 運用する場合は Worker 組込みのリミッタのみで運用し、必要に応じて
+> カスタムドメインを Cloudflare プロキシ配下に置いて WAF 機能を活用する。
+
+### チューニング
+
+デフォルト値は `src/index.ts` で設定している。トラフィック特性に合わせて
+`windowMs` / `max` を調整する。リダイレクト (`GET /:slug`) には意図的に
+レートリミットを掛けていない（ホットパスであり、IP/地域偏りの大きい正規
+トラフィックを弾きたくない）。こちらも必要なら Rate Limiting Rules 側で
+吸収する。
+
 ## CI/CD
 
 Deploy to Cloudflare ボタンを使った場合、GitHub Actions が自動設定される。以降は `main` ブランチへの push で自動デプロイが行われる。
