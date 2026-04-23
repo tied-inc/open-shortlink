@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Bindings } from "../bindings";
+import { bearerAuth } from "../middleware/auth";
 import { LinkStore } from "../storage/kv";
 import {
   LinkConflictError,
@@ -12,15 +13,7 @@ import { AnalyticsQuery, type Period, type Interval } from "../analytics/query";
 
 export const apiRoute = new Hono<{ Bindings: Bindings }>();
 
-// Bearer auth
-apiRoute.use("*", async (c, next) => {
-  const header = c.req.header("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!c.env.API_TOKEN || token !== c.env.API_TOKEN) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  return next();
-});
+apiRoute.use("*", bearerAuth);
 
 function getBaseUrl(c: { req: { url: string } }): string {
   const url = new URL(c.req.url);

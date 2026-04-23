@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "../bindings";
+import { bearerAuth } from "../middleware/auth";
 import { tools, toolMap, type ToolContext } from "./tools";
 
 // Minimal JSON-RPC 2.0 + MCP handler suited to stateless Workers.
@@ -24,14 +25,7 @@ const SERVER_INFO = { name: "open-shortlink", version: "0.1.0" };
 
 export const mcpRoute = new Hono<{ Bindings: Bindings }>();
 
-mcpRoute.use("*", async (c, next) => {
-  const header = c.req.header("authorization") ?? "";
-  const token = header.startsWith("Bearer ") ? header.slice(7) : "";
-  if (!c.env.API_TOKEN || token !== c.env.API_TOKEN) {
-    return c.json({ error: "unauthorized" }, 401);
-  }
-  return next();
-});
+mcpRoute.use("*", bearerAuth);
 
 mcpRoute.post("/", async (c) => {
   const body = (await c.req.json().catch(() => null)) as

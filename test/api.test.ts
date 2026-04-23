@@ -1,0 +1,319 @@
+import { beforeEach, describe, expect, test } from "bun:test";
+import { Hono } from "hono";
+import type { Bindings } from "../src/bindings";
+import { apiRoute } from "../src/routes/api";
+import { authHeader, createTestCtx, createTestEnv } from "./helpers/test-app";
+
+function buildApp() {
+  const app = new Hono<{ Bindings: Bindings }>();
+  app.route("/api", apiRoute);
+  return app;
+}
+
+async function req(
+  app: ReturnType<typeof buildApp>,
+  path: string,
+  init: RequestInit,
+  env: Bindings,
+) {
+  return app.request(
+    `https://test.example${path}`,
+    init,
+    env,
+    createTestCtx(),
+  );
+}
+
+describe("API authentication", () => {
+  const app = buildApp();
+  const env = createTestEnv();
+
+  test("rejects missing Authorization header", async () => {
+    const res = await req(app, "/api/links", { method: "GET" }, env);
+    expect(res.status).toBe(401);
+  });
+
+  test("rejects wrong token", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      { method: "GET", headers: { Authorization: "Bearer wrong" } },
+      env,
+    );
+    expect(res.status).toBe(401);
+  });
+
+  test("accepts correct token", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      { method: "GET", headers: authHeader() },
+      env,
+    );
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("POST /api/links", () => {
+  let app: ReturnType<typeof buildApp>;
+  let env: Bindings;
+
+  beforeEach(() => {
+    app = buildApp();
+    env = createTestEnv();
+  });
+
+  test("creates link with auto-generated slug", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://example.com" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.slug).toMatch(/^[A-Za-z0-9]{6}$/);
+    expect(body.url).toBe("https://example.com");
+    expect(body.shortUrl).toContain("test.example/");
+  });
+
+  test("creates link with custom slug", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://example.com", slug: "hello" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.slug).toBe("hello");
+  });
+
+  test("returns 400 for invalid URL", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "not a url" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 400 for reserved slug", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://example.com", slug: "api" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 400 for invalid JSON body", async () => {
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: "{ invalid",
+      },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("returns 409 for duplicate slug", async () => {
+    await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://a.com", slug: "dup" }),
+      },
+      env,
+    );
+    const res = await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://b.com", slug: "dup" }),
+      },
+      env,
+    );
+    expect(res.status).toBe(409);
+  });
+});
+
+describe("GET /api/links/:slug", () => {
+  let app: ReturnType<typeof buildApp>;
+  let env: Bindings;
+
+  beforeEach(() => {
+    app = buildApp();
+    env = createTestEnv();
+  });
+
+  test("returns existing link", async () => {
+    await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://example.com", slug: "abc" }),
+      },
+      env,
+    );
+
+    const res = await req(
+      app,
+      "/api/links/abc",
+      { method: "GET", headers: authHeader() },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.slug).toBe("abc");
+  });
+
+  test("returns 404 for missing slug", async () => {
+    const res = await req(
+      app,
+      "/api/links/missing",
+      { method: "GET", headers: authHeader() },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("DELETE /api/links/:slug", () => {
+  let app: ReturnType<typeof buildApp>;
+  let env: Bindings;
+
+  beforeEach(() => {
+    app = buildApp();
+    env = createTestEnv();
+  });
+
+  test("deletes existing link", async () => {
+    await req(
+      app,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://example.com", slug: "abc" }),
+      },
+      env,
+    );
+    const res = await req(
+      app,
+      "/api/links/abc",
+      { method: "DELETE", headers: authHeader() },
+      env,
+    );
+    expect(res.status).toBe(204);
+
+    const getRes = await req(
+      app,
+      "/api/links/abc",
+      { method: "GET", headers: authHeader() },
+      env,
+    );
+    expect(getRes.status).toBe(404);
+  });
+
+  test("returns 404 for missing slug", async () => {
+    const res = await req(
+      app,
+      "/api/links/missing",
+      { method: "DELETE", headers: authHeader() },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
+});
+
+describe("GET /api/links (list)", () => {
+  test("lists empty when no links", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await req(
+      app,
+      "/api/links",
+      { method: "GET", headers: authHeader() },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { links: unknown[] };
+    expect(body.links).toEqual([]);
+  });
+
+  test("lists created links", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    for (const slug of ["a", "b", "c"]) {
+      await req(
+        app,
+        "/api/links",
+        {
+          method: "POST",
+          headers: { ...authHeader(), "content-type": "application/json" },
+          body: JSON.stringify({ url: `https://${slug}.example`, slug }),
+        },
+        env,
+      );
+    }
+    const res = await req(
+      app,
+      "/api/links?limit=10",
+      { method: "GET", headers: authHeader() },
+      env,
+    );
+    const body = (await res.json()) as { links: { slug: string }[] };
+    expect(body.links).toHaveLength(3);
+  });
+});
+
+describe("Analytics endpoints without credentials", () => {
+  test("return 503 when CF_ACCOUNT_ID / CF_ANALYTICS_TOKEN are missing", async () => {
+    const app = buildApp();
+    const env = createTestEnv(); // analyticsConfigured: false
+
+    for (const path of [
+      "/api/analytics/top",
+      "/api/analytics/ai",
+      "/api/analytics/abc",
+      "/api/analytics/abc/timeseries",
+    ]) {
+      const res = await req(
+        app,
+        path,
+        { method: "GET", headers: authHeader() },
+        env,
+      );
+      expect(res.status).toBe(503);
+    }
+  });
+});

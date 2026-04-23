@@ -1,0 +1,4 @@
+API_TOKEN=dev-token-change-me
+# Optional: Analytics Engine SQL query credentials.
+# CF_ACCOUNT_ID=your-cloudflare-account-id
+# CF_ANALYTICS_TOKEN=your-cloudflare-api-token-with-account-analytics-read
