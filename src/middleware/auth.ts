@@ -41,6 +41,11 @@ function isUsableToken(token: string): boolean {
   return true;
 }
 
+// Per-isolate flag so the misconfiguration warning is logged once per cold
+// start instead of on every protected request. Operators watching
+// `wrangler tail` will see it on first traffic without log spam.
+let misconfigurationWarned = false;
+
 export const bearerAuth: MiddlewareHandler<{ Bindings: Bindings }> = async (
   c,
   next,
@@ -51,10 +56,23 @@ export const bearerAuth: MiddlewareHandler<{ Bindings: Bindings }> = async (
   // token. Surfaces misconfiguration loudly rather than allowing the deploy
   // to accept the placeholder token shipped with the template.
   if (!isUsableToken(expected)) {
+    if (!misconfigurationWarned) {
+      misconfigurationWarned = true;
+      console.error(
+        JSON.stringify({
+          level: "error",
+          event: "api_token_misconfigured",
+          message:
+            "API_TOKEN is unset, too short (<24 chars), or a known placeholder. /api/* and /mcp* are fail-closed at 503 until it is fixed.",
+          docs: "https://tied-inc.github.io/open-shortlink/guide/security",
+        }),
+      );
+    }
     return c.json(
       {
         error:
           "server misconfigured: API_TOKEN must be set to a strong random value (>= 24 chars)",
+        docs: "https://tied-inc.github.io/open-shortlink/guide/security",
       },
       503,
       { "WWW-Authenticate": 'Bearer realm="open-shortlink"' },

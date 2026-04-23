@@ -250,11 +250,20 @@ meta-externalagent
 
 ## 認証
 
+公式ポリシー（運用者必読）は [docs/guide/security.md](./docs/guide/security.md)
+に集約。本 SPEC では仕様として守るべき振る舞いのみを規定する。
+
+- **第一線（必須）**: Worker 内の `API_TOKEN` による Bearer 認証
+- **二線目（推奨）**: Cloudflare Access を `API_HOST` に適用（MCP クライアント
+  は Service Token 併用）。Worker 実装からは Access の有無を区別せず、
+  `Authorization: Bearer` は常に要求する
 - リダイレクトエンドポイント (`GET /:slug`): 認証なし
 - API (`/api/*`) / MCP (`/mcp`): `Authorization: Bearer <API_TOKEN>` ヘッダー必須
 - 認証失敗時: 401 Unauthorized（`WWW-Authenticate: Bearer realm="open-shortlink"` 付与）
 - 比較は定数時間比較で実施（タイミング攻撃耐性）
-- `API_TOKEN` が未設定または弱い（24文字未満・既知プレースホルダ）場合、サーバーは 503 を返して起動を拒否する
+- `API_TOKEN` が未設定または弱い（24文字未満・既知プレースホルダ）場合、
+  サーバーは 503 を返して**処理を一切進めない**（fail-closed）。これにより
+  「トークン未設定で API が誰でも叩ける」状態が発生しないことを保証する
 
 ## セキュリティ対策
 

@@ -1,5 +1,11 @@
 # クイックスタート
 
+::: warning はじめに: 認証トークンが必須です
+Open Shortlink の API/MCP は `API_TOKEN` （Bearer 認証）を設定しないと
+**503** を返し続けます（fail-closed 設計）。デプロイ直後に必ずトークンを
+設定してください。詳しくは [セキュリティポリシー](./security) を参照。
+:::
+
 ## Deploy to Cloudflare（推奨）
 
 最も簡単な方法。ボタンをクリックするだけで、Cloudflare コンソール上でデプロイまで完結します。
@@ -17,8 +23,14 @@
 
 ### デプロイ後の設定
 
-1. Cloudflare ダッシュボードで Worker の環境変数 `API_TOKEN` を設定
-2. （オプション）カスタムドメインを設定
+1. **必須**: Cloudflare ダッシュボード → Worker → Settings → Variables で
+   `API_TOKEN` を **Secret** として追加。値は `openssl rand -base64 32` の
+   ような 24 文字以上のランダム値。既知プレースホルダ（`dev-token-change-me`
+   など）は Worker が拒否します
+2. 動作確認: `curl -i https://<your-worker>/api/links` が **401** を返すこと
+   （503 なら `API_TOKEN` が未設定または弱い）
+3. （オプション）カスタムドメインを設定
+4. （推奨）組織運用なら [Cloudflare Access で API ホストを保護](./security#二線目-cloudflare-access推奨)
 
 ## 手動セットアップ
 

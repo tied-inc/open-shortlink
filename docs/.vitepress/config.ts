@@ -29,6 +29,7 @@ export default defineConfig({
         items: [
           { text: "アーキテクチャ", link: "/guide/architecture" },
           { text: "クリック分析", link: "/guide/analytics" },
+          { text: "セキュリティ", link: "/guide/security" },
         ],
       },
       {
