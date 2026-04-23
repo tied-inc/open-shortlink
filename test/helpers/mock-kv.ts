@@ -9,6 +9,7 @@ interface StoredEntry {
 export class MockKV {
   private data = new Map<string, StoredEntry>();
   private now = () => Date.now();
+  getCallCount = 0;
 
   setClock(fn: () => number) {
     this.now = fn;
@@ -19,6 +20,7 @@ export class MockKV {
   }
 
   async get(key: string, _options?: unknown): Promise<string | null> {
+    this.getCallCount++;
     const entry = this.data.get(key);
     if (!entry || this.isExpired(entry)) {
       if (entry) this.data.delete(key);
@@ -31,6 +33,7 @@ export class MockKV {
     key: string,
     _options?: unknown,
   ): Promise<{ value: string | null; metadata: T | null }> {
+    this.getCallCount++;
     const entry = this.data.get(key);
     if (!entry || this.isExpired(entry)) {
       if (entry) this.data.delete(key);
