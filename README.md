@@ -11,6 +11,16 @@
 
 詳細は [ドキュメント](https://tied-inc.github.io/open-shortlink/) および [SPEC.md](./SPEC.md) を参照。
 
+## セキュリティポリシー（必読）
+
+Open Shortlink の API（`/api/*`）と MCP（`/mcp`）は Cloudflare Workers のパブリック URL で公開されるため、**運用者自身が以下を守る責任があります**。
+
+- **第一線（必須）**: Worker 内の `API_TOKEN`（Bearer 認証）。24 文字以上のランダム値。`dev-token-change-me` などの既知プレースホルダは Worker が起動時に拒否（**fail-closed**）。未設定のまま稼働しても API は 503 を返すのみで、誰にも見えない
+- **二線目（推奨・組織向け）**: Cloudflare Access を API/MCP サブドメインに適用。MCP クライアントには Access Service Token を併用
+- **三線目（推奨）**: Cloudflare Rate Limiting Rules / WAF
+
+詳細・チェックリスト・ローテーション手順は [セキュリティガイド](https://tied-inc.github.io/open-shortlink/guide/security) を参照してください。
+
 ## 従来サービスとのコスト比較
 
 月間クリック数やリンク数の規模ごとに、一般的な商用 URL 短縮サービスと Open Shortlink を比較したものです。料金は各社の公開プランを参考にした概算値（2026 年時点）で、為替は $1 ≒ 150 円で換算しています。

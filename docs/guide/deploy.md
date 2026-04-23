@@ -1,5 +1,12 @@
 # デプロイ
 
+::: danger 必読: API_TOKEN を設定するまで API は起動しません
+Open Shortlink は fail-closed です。`API_TOKEN` が未設定または弱い場合、
+`/api/*` と `/mcp*` は **503** を返し続けます（誰でも見える状態にはなりません）。
+デプロイ直後に必ず [セキュリティポリシー](./security) を一読し、
+強いランダム値の `API_TOKEN` を Secret として設定してください。
+:::
+
 ## Deploy to Cloudflare（推奨）
 
 最も簡単な方法。ボタンをクリックするだけで、Cloudflare のコンソール上でデプロイが完結する。
@@ -15,13 +22,30 @@
 
 > このリポジトリでは GitHub Actions から `wrangler deploy` を実行しない。ビルドおよびデプロイは Cloudflare コンソール側で完結する想定。以降の `main` への push も、Cloudflare 側の Workers Builds でデプロイされる。
 
-### デプロイ後の設定（コンソールで完結）
+### デプロイ後の必須設定（順序を守ること）
 
-すべて Cloudflare ダッシュボード上で完了する:
+**ステップ 1（必須）: API_TOKEN を設定する。設定しない限り API/MCP は 503 を返し続けます。**
 
-1. Workers & Pages → 対象の Worker → **Settings → Variables** で `API_TOKEN`（Bearer 認証用）を Secret として追加
-2. （オプション）**Settings → Triggers → Custom Domains** でカスタムドメインを設定
-3. （オプション）**Settings → Build** で自動ビルドのブランチやコマンドを確認・変更
+1. Workers & Pages → 対象の Worker → **Settings → Variables**
+2. "Add variable" → **Encrypt** にチェック → 名前を `API_TOKEN` に
+3. 値は **24 文字以上のランダム値**。例:
+   ```bash
+   openssl rand -base64 32
+   ```
+   `dev-token-change-me` / `test-token` / `secret` などは Worker が拒否します
+4. 保存後、`curl -i https://<your-worker>/api/links` で `401 unauthorized`
+   （503 ではなく）が返ることを確認
+
+**ステップ 2（任意）: カスタムドメインと API ホスト分離**
+
+- **Settings → Triggers → Custom Domains** でドメインを設定
+- 運用チームで使う場合は [リダイレクトホストと API ホストを分ける](#推奨-リダイレクトホストと-api-ホストを分ける) を推奨
+
+**ステップ 3（推奨・組織向け）: Cloudflare Access で API ホストを保護**
+
+SSO / 送信元 IP / デバイス姿勢で API へのアクセスを絞りたい場合は
+[セキュリティポリシー](./security#二線目-cloudflare-access推奨) を参照。
+MCP クライアントは Access Service Token と併用します。
 
 ## 手動デプロイ
 
@@ -48,13 +72,19 @@ wrangler login
 wrangler kv namespace create SHORTLINKS
 # 出力された id を wrangler.toml に設定
 
-# 5. API_TOKEN を設定
-wrangler secret put API_TOKEN
-# プロンプトでトークンを入力
+# 5. API_TOKEN を設定（必須・24 文字以上のランダム値）
+openssl rand -base64 32 | wrangler secret put API_TOKEN
 
 # 6. デプロイ
 bun run deploy
+
+# 7. 動作確認: 401 が返れば OK（503 なら API_TOKEN が未設定 / 弱い）
+curl -i https://<your-worker>.workers.dev/api/links
 ```
+
+トークンはパスワードマネージャー（1Password / Bitwarden など）に保管し、
+ローテーション方針は [セキュリティポリシー](./security#ローテーション)
+を参照。
 
 ### wrangler.toml の設定
 
