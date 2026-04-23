@@ -1,7 +1,9 @@
-# API_TOKEN must be a strong random value of at least 24 characters.
-# Generate one with e.g. `openssl rand -base64 32` or `uuidgen`.
+# Required. Strong random value of at least 24 characters for the Bearer
+# token that authenticates /api/* and /mcp*.
+# Generate with e.g. `openssl rand -base64 32` or `uuidgen`.
 # Well-known placeholder values (dev-token-change-me, test-token, etc.) are
-# rejected at runtime.
+# rejected at runtime — the worker returns 503 until a strong value is set.
+# The Deploy to Cloudflare button prompts for this value during setup.
 API_TOKEN=replace-with-output-of-openssl-rand-base64-32
 
 # Optional: Analytics Engine SQL query credentials.
