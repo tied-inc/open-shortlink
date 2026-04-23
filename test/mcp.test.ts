@@ -62,7 +62,7 @@ describe("MCP initialize", () => {
 });
 
 describe("MCP tools/list", () => {
-  test("returns all 7 tools", async () => {
+  test("returns all 8 tools", async () => {
     const app = buildApp();
     const env = createTestEnv();
     const { data } = await rpc(app, env, {
@@ -70,7 +70,7 @@ describe("MCP tools/list", () => {
       id: 2,
       method: "tools/list",
     });
-    expect(data.result.tools).toHaveLength(7);
+    expect(data.result.tools).toHaveLength(8);
     const names = data.result.tools.map((t: any) => t.name).sort();
     expect(names).toEqual([
       "create_link",
@@ -78,6 +78,7 @@ describe("MCP tools/list", () => {
       "get_ai_stats",
       "get_analytics",
       "get_link",
+      "get_timeseries",
       "get_top_links",
       "list_links",
     ]);

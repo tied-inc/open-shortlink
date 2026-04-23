@@ -2,9 +2,21 @@
 
 Open Shortlink は Cloudflare Worker 上で Remote MCP サーバーとして動作する。Web UI の代わりに、AI アシスタント経由でリンク管理と分析を行う。
 
-## 接続設定
+すべての REST API 操作（リンク CRUD、クリック統計、時系列、トップ、AI 統計）は MCP ツールとして公開されており、**Web UI を介さず AI エージェントと MCP サーバーだけで完結**する。
 
-Claude Desktop やその他の MCP クライアントに以下を設定:
+## エンドポイント
+
+- URL: `https://your-shortlink.workers.dev/mcp`
+- トランスポート: Streamable HTTP (MCP spec `2025-06-18` / `2025-03-26` / `2024-11-05`)
+- 認証: `Authorization: Bearer <API_TOKEN>` ヘッダー
+- `POST /mcp` が JSON-RPC、`GET /mcp` が server info、`DELETE /mcp` は 405（ステートレス）
+
+## クライアント設定
+
+### Claude Desktop
+
+`~/Library/Application Support/Claude/claude_desktop_config.json`
+（Windows は `%APPDATA%\Claude\claude_desktop_config.json`）に以下を追加:
 
 ```json
 {
@@ -19,6 +31,58 @@ Claude Desktop やその他の MCP クライアントに以下を設定:
   }
 }
 ```
+
+設定後、Claude Desktop を再起動するとチャット画面右下のツールアイコンに
+`shortlink` が表示される。
+
+### Claude Code (CLI)
+
+```bash
+claude mcp add --transport http shortlink \
+  https://your-shortlink.workers.dev/mcp \
+  --header "Authorization: Bearer <API_TOKEN>"
+```
+
+またはプロジェクトルートに `.mcp.json` を作成:
+
+```json
+{
+  "mcpServers": {
+    "shortlink": {
+      "type": "http",
+      "url": "https://your-shortlink.workers.dev/mcp",
+      "headers": {
+        "Authorization": "Bearer <API_TOKEN>"
+      }
+    }
+  }
+}
+```
+
+`claude mcp list` で接続状態を確認できる。
+
+### ChatGPT (Developer mode / Connectors)
+
+ChatGPT は ChatGPT Pro / Business / Enterprise で Remote MCP サーバーを
+**Connector** として追加できる（Developer mode 有効化時）。
+
+1. Settings → Connectors → **Add custom connector**
+2. 以下を入力:
+   - **Name**: `Open Shortlink`
+   - **MCP Server URL**: `https://your-shortlink.workers.dev/mcp`
+   - **Authentication**: `Custom headers` を選び
+     `Authorization: Bearer <API_TOKEN>` を追加
+3. 保存すると Tools メニューから `shortlink` ツールを有効化できる
+
+> Connector 機能が利用できないプラン（Free / Plus）の場合は、
+> REST API を **Custom GPT の Actions (OpenAPI)** として登録する方法でも同等の操作が可能。
+> `Authentication` に `API Key / Bearer` を設定し、`/api/links` と
+> `/api/analytics/*` の各エンドポイントを OpenAPI スキーマで定義する。
+
+### Cursor / Windsurf / その他の MCP クライアント
+
+Streamable HTTP 準拠のクライアントであれば、同じ `url` + `headers` 形式で
+接続できる。クライアントごとの設定ファイル場所は各ドキュメントを参照。
 
 ## ツール一覧
 
@@ -70,6 +134,16 @@ Claude Desktop やその他の MCP クライアントに以下を設定:
 | `slug` | string | Yes | 対象の slug |
 | `period` | string | No | 集計期間（`1d`, `7d`, `30d`, `90d`。デフォルト: `7d`） |
 
+#### `get_timeseries`
+
+特定の slug の時系列クリックデータを取得する。
+
+| パラメータ | 型 | 必須 | 説明 |
+|---|---|---|---|
+| `slug` | string | Yes | 対象の slug |
+| `period` | string | No | 集計期間（`1d`, `7d`, `30d`, `90d`。デフォルト: `7d`） |
+| `interval` | string | No | 集計間隔（`1h`, `1d`。デフォルト: `1d`） |
+
 #### `get_top_links`
 
 クリック数の多いリンクのランキングを取得する。
@@ -101,6 +175,9 @@ AI アクセスの統計を取得する。
 
 「abc123 の国別アクセスを教えて」
 → get_analytics(slug: "abc123", period: "30d")
+
+「abc123 の先月の日別推移をグラフにしたい」
+→ get_timeseries(slug: "abc123", period: "30d", interval: "1d")
 
 「AI からのアクセスはどれくらい？」
 → get_ai_stats(period: "30d")

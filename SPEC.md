@@ -211,6 +211,7 @@ Metadata: { createdAt: number, expiresAt?: number }
 | `get_link` | リンク詳細 | GET /api/links/:slug |
 | `delete_link` | リンク削除 | DELETE /api/links/:slug |
 | `get_analytics` | slug 別統計 | GET /api/analytics/:slug |
+| `get_timeseries` | 時系列クリックデータ | GET /api/analytics/:slug/timeseries |
 | `get_top_links` | トップリンク | GET /api/analytics/top |
 | `get_ai_stats` | AI アクセス統計 | GET /api/analytics/ai |
 
