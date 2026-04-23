@@ -296,6 +296,65 @@ describe("GET /api/links (list)", () => {
   });
 });
 
+describe("Unexpected internal errors", () => {
+  function buildAppWithBrokenKV() {
+    const app = new Hono<{ Bindings: Bindings }>();
+    app.route("/api", apiRoute);
+    app.onError((err, c) =>
+      c.json({ error: err instanceof Error ? err.message : "err" }, 500),
+    );
+    return app;
+  }
+
+  function brokenEnv(): Bindings {
+    const env = createTestEnv();
+    // Every KV method throws.
+    env.SHORTLINKS = new Proxy({} as KVNamespace, {
+      get: () => () => {
+        throw new Error("boom");
+      },
+    });
+    return env;
+  }
+
+  test("POST /api/links returns 500 on unexpected KV failure", async () => {
+    const app = buildAppWithBrokenKV();
+    const res = await app.request(
+      "https://test.example/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://example.com", slug: "abc" }),
+      },
+      brokenEnv(),
+      createTestCtx(),
+    );
+    expect(res.status).toBe(500);
+  });
+
+  test("GET /api/links/:slug returns 500 on unexpected KV failure", async () => {
+    const app = buildAppWithBrokenKV();
+    const res = await app.request(
+      "https://test.example/api/links/anything",
+      { method: "GET", headers: authHeader() },
+      brokenEnv(),
+      createTestCtx(),
+    );
+    expect(res.status).toBe(500);
+  });
+
+  test("DELETE /api/links/:slug returns 500 on unexpected KV failure", async () => {
+    const app = buildAppWithBrokenKV();
+    const res = await app.request(
+      "https://test.example/api/links/anything",
+      { method: "DELETE", headers: authHeader() },
+      brokenEnv(),
+      createTestCtx(),
+    );
+    expect(res.status).toBe(500);
+  });
+});
+
 describe("Analytics endpoints without credentials", () => {
   test("return 503 when CF_ACCOUNT_ID / CF_ANALYTICS_TOKEN are missing", async () => {
     const app = buildApp();

@@ -47,6 +47,52 @@ describe("rateLimit", () => {
     key = "b";
     expect((await app.request("/")).status).toBe(200);
   });
+
+  test("resets after the window elapses", async () => {
+    const app = new Hono();
+    app.use(
+      "*",
+      rateLimit({ windowMs: 10, max: 1, keyFn: () => "fixed" }),
+    );
+    app.get("/", (c) => c.text("ok"));
+
+    expect((await app.request("/")).status).toBe(200);
+    expect((await app.request("/")).status).toBe(429);
+    await new Promise((resolve) => setTimeout(resolve, 15));
+    expect((await app.request("/")).status).toBe(200);
+  });
+
+  test("falls back to CF-Connecting-IP header when no keyFn", async () => {
+    const app = new Hono();
+    app.use("*", rateLimit({ windowMs: 60_000, max: 1 }));
+    app.get("/", (c) => c.text("ok"));
+
+    const headersA = { "CF-Connecting-IP": "1.1.1.1" };
+    const headersB = { "CF-Connecting-IP": "2.2.2.2" };
+
+    expect((await app.request("/", { headers: headersA })).status).toBe(200);
+    expect((await app.request("/", { headers: headersA })).status).toBe(429);
+    expect((await app.request("/", { headers: headersB })).status).toBe(200);
+  });
+
+  test("falls back to X-Forwarded-For when no CF-Connecting-IP", async () => {
+    const app = new Hono();
+    app.use("*", rateLimit({ windowMs: 60_000, max: 1 }));
+    app.get("/", (c) => c.text("ok"));
+
+    const headers = { "X-Forwarded-For": "10.0.0.1" };
+    expect((await app.request("/", { headers })).status).toBe(200);
+    expect((await app.request("/", { headers })).status).toBe(429);
+  });
+
+  test("uses 'unknown' key when no IP headers available", async () => {
+    const app = new Hono();
+    app.use("*", rateLimit({ windowMs: 60_000, max: 1 }));
+    app.get("/", (c) => c.text("ok"));
+
+    expect((await app.request("/")).status).toBe(200);
+    expect((await app.request("/")).status).toBe(429);
+  });
 });
 
 describe("cors", () => {

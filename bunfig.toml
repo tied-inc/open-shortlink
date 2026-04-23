@@ -1,0 +1,9 @@
+[test]
+coverage = true
+coverageReporter = ["text"]
+coveragePathIgnorePatterns = [
+  "**/test/**",
+  "**/node_modules/**",
+  "**/docs/**",
+]
+coverageThreshold = { line = 0.95, function = 0.95 }

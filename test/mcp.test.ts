@@ -168,6 +168,78 @@ describe("MCP tools/call", () => {
     expect(data.result.isError).toBeUndefined();
   });
 
+  test("list_links returns created links", async () => {
+    await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 100,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "https://example.com", slug: "l1" },
+      },
+    });
+    await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 101,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "https://example.org", slug: "l2" },
+      },
+    });
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 102,
+      method: "tools/call",
+      params: { name: "list_links", arguments: { limit: 10 } },
+    });
+    const content = JSON.parse(data.result.content[0].text);
+    expect(content.links.length).toBe(2);
+  });
+
+  test("list_links works with empty arguments", async () => {
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 103,
+      method: "tools/call",
+      params: { name: "list_links", arguments: {} },
+    });
+    const content = JSON.parse(data.result.content[0].text);
+    expect(content.links).toEqual([]);
+  });
+
+  test("create_link returns isError for duplicate slug", async () => {
+    await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 104,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "https://a.com", slug: "dup" },
+      },
+    });
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 105,
+      method: "tools/call",
+      params: {
+        name: "create_link",
+        arguments: { url: "https://b.com", slug: "dup" },
+      },
+    });
+    expect(data.result.isError).toBe(true);
+  });
+
+  test("delete_link returns isError for missing slug", async () => {
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 106,
+      method: "tools/call",
+      params: { name: "delete_link", arguments: { slug: "missing" } },
+    });
+    expect(data.result.isError).toBe(true);
+  });
+
   test("unknown tool returns error", async () => {
     const { data } = await rpc(app, env, {
       jsonrpc: "2.0",
@@ -209,6 +281,78 @@ describe("MCP notifications", () => {
           jsonrpc: "2.0",
           method: "notifications/initialized",
         }),
+      },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(204);
+  });
+});
+
+describe("MCP tools/call edge cases", () => {
+  test("tools/call with missing name returns -32602", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 20,
+      method: "tools/call",
+      params: { arguments: {} },
+    });
+    expect(data.error.code).toBe(-32602);
+    expect(data.error.message).toContain("missing tool name");
+  });
+
+  test("tools/call with missing params returns -32602", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 21,
+      method: "tools/call",
+    });
+    expect(data.error.code).toBe(-32602);
+  });
+
+  test("ping returns empty result", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const { data } = await rpc(app, env, {
+      jsonrpc: "2.0",
+      id: 22,
+      method: "ping",
+    });
+    expect(data.result).toEqual({});
+  });
+
+  test("notification for unknown method returns 204", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await app.request(
+      "https://test.example/mcp",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", method: "unknown/notif" }),
+      },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(204);
+  });
+
+  test("batch of only notifications returns 204", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await app.request(
+      "https://test.example/mcp",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify([
+          { jsonrpc: "2.0", method: "notifications/initialized" },
+          { jsonrpc: "2.0", method: "notifications/cancelled" },
+        ]),
       },
       env,
       createTestCtx(),

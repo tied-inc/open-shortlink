@@ -118,3 +118,19 @@ export function createMockKV(): KVNamespace {
 export function asMockKV(kv: KVNamespace): MockKV {
   return kv as unknown as MockKV;
 }
+
+// Creates a KV namespace that throws on every operation — useful for testing
+// error paths in route handlers.
+export function createBrokenKV(
+  message = "simulated KV failure",
+): KVNamespace {
+  const err = new Error(message);
+  const handler = {
+    get: () => {
+      throw err;
+    },
+  };
+  return new Proxy({} as KVNamespace, {
+    get: () => handler.get,
+  });
+}
