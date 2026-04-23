@@ -11,6 +11,7 @@ export default defineConfig({
     nav: [
       { text: "ガイド", link: "/guide/getting-started" },
       { text: "API", link: "/api" },
+      { text: "リリース", link: "/releases" },
       { text: "GitHub", link: "https://github.com/tied-inc/open-shortlink" },
     ],
 
@@ -36,6 +37,10 @@ export default defineConfig({
           { text: "REST API", link: "/api" },
           { text: "MCP サーバー", link: "/mcp" },
         ],
+      },
+      {
+        text: "リリース",
+        items: [{ text: "リリースノート", link: "/releases" }],
       },
     ],
 
