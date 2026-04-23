@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "./scripts/deploy.sh",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
     "cf-typegen": "wrangler types",
