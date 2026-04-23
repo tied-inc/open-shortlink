@@ -102,7 +102,7 @@ function isInternalIpv6(host: string): boolean {
   if (h.startsWith("ff")) return true;
   // IPv4-mapped (::ffff:a.b.c.d) — always represents a v4 endpoint, which the
   // shortener has no legitimate need to proxy through IPv6.
-  if (h.includes("::ffff:")) return true;
+  if (h.startsWith("::ffff:")) return true;
   // NAT64 well-known prefix.
   if (h.startsWith("64:ff9b:")) return true;
   // IPv4-embedded at the end in dotted form (e.g. ::1.2.3.4).
