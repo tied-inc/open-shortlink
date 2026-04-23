@@ -139,6 +139,44 @@ describe("POST /api/links", () => {
     expect(res.status).toBe(400);
   });
 
+  test("uses PUBLIC_BASE_URL for shortUrl when configured", async () => {
+    const appWithBase = buildApp();
+    const envWithBase = createTestEnv({
+      publicBaseUrl: "https://go.example.com",
+    });
+    const res = await req(
+      appWithBase,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://example.com", slug: "abc" }),
+      },
+      envWithBase,
+    );
+    expect(res.status).toBe(201);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.shortUrl).toBe("https://go.example.com/abc");
+  });
+
+  test("rejects target URL pointing at the shortener host", async () => {
+    const appWithBase = buildApp();
+    const envWithBase = createTestEnv({
+      publicBaseUrl: "https://go.example.com",
+    });
+    const res = await req(
+      appWithBase,
+      "/api/links",
+      {
+        method: "POST",
+        headers: { ...authHeader(), "content-type": "application/json" },
+        body: JSON.stringify({ url: "https://go.example.com/evil" }),
+      },
+      envWithBase,
+    );
+    expect(res.status).toBe(400);
+  });
+
   test("returns 409 for duplicate slug", async () => {
     await req(
       app,

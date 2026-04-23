@@ -15,7 +15,8 @@ export const apiRoute = new Hono<{ Bindings: Bindings }>();
 
 apiRoute.use("*", bearerAuth);
 
-function getBaseUrl(c: { req: { url: string } }): string {
+function getBaseUrl(c: { req: { url: string }; env: Bindings }): string {
+  if (c.env.PUBLIC_BASE_URL) return c.env.PUBLIC_BASE_URL.replace(/\/+$/, "");
   const url = new URL(c.req.url);
   return `${url.protocol}//${url.host}`;
 }
@@ -90,9 +91,14 @@ apiRoute.get("/links/:slug", async (c) => {
 
 apiRoute.delete("/links/:slug", async (c) => {
   const slug = c.req.param("slug");
-  const service = getService(c.env, getBaseUrl(c));
+  const baseUrl = getBaseUrl(c);
+  const service = getService(c.env, baseUrl);
   try {
     await service.delete(slug);
+    const cache = (globalThis as { caches?: CacheStorage }).caches?.default;
+    if (cache) {
+      c.executionCtx.waitUntil(cache.delete(`${baseUrl}/${slug}`));
+    }
     return c.body(null, 204);
   } catch (err) {
     if (err instanceof LinkNotFoundError) {

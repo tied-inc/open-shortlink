@@ -12,3 +12,17 @@ id = "REPLACE_WITH_KV_NAMESPACE_ID"
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "open_shortlink_clicks"
+
+# Custom-domain deployment. Uncomment and set `routes` plus `vars` to split
+# the redirect host from the API/MCP host on a single worker. See
+# .dev.vars.example for the matching local values.
+#
+# routes = [
+#   { pattern = "go.example.com/*",  zone_name = "example.com" },
+#   { pattern = "api.example.com/*", zone_name = "example.com" },
+# ]
+#
+# [vars]
+# PUBLIC_BASE_URL = "https://go.example.com"
+# REDIRECT_HOST   = "go.example.com"
+# API_HOST        = "api.example.com"

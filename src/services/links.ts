@@ -45,9 +45,22 @@ export class LinkService {
     return { ...link, shortUrl: `${this.baseUrl}/${link.slug}` };
   }
 
+  private isSelfHost(target: string): boolean {
+    try {
+      return new URL(target).host === new URL(this.baseUrl).host;
+    } catch {
+      return false;
+    }
+  }
+
   async create(input: CreateLinkInput): Promise<LinkResponse> {
     if (!isValidUrl(input.url)) {
       throw new LinkValidationError("invalid url");
+    }
+    if (this.isSelfHost(input.url)) {
+      throw new LinkValidationError(
+        "target must not point to this shortener",
+      );
     }
     if (input.expiresIn !== undefined && input.expiresIn <= 0) {
       throw new LinkValidationError("expiresIn must be positive");

@@ -61,6 +61,15 @@ describe("LinkService", () => {
     ).rejects.toBeInstanceOf(LinkValidationError);
   });
 
+  test("create rejects target pointing at the shortener host", async () => {
+    await expect(
+      service.create({ url: "https://short.example/foo" }),
+    ).rejects.toBeInstanceOf(LinkValidationError);
+    await expect(
+      service.create({ url: "https://short.example" }),
+    ).rejects.toBeInstanceOf(LinkValidationError);
+  });
+
   test("create throws conflict on duplicate custom slug", async () => {
     await service.create({ url: "https://a.com", slug: "dup" });
     await expect(
