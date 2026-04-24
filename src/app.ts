@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import type { Bindings } from "./bindings";
-import { mcpRoute } from "./mcp/server";
 import { handleAuthorize } from "./oauth/authorize";
 import { apiRoute } from "./routes/api";
 import { redirectRoute } from "./routes/redirect";
@@ -19,13 +18,9 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.use("*", requestLogger);
 app.use("*", securityHeaders);
 app.use("/api/*", cors);
-app.use("/mcp", cors);
-app.use("/mcp/*", cors);
 
 // Per-IP rate limits. Redirect path gets a much higher cap since it's the hot path.
 app.use("/api/*", rateLimit({ windowMs: 60_000, max: 120 }));
-app.use("/mcp", rateLimit({ windowMs: 60_000, max: 120 }));
-app.use("/mcp/*", rateLimit({ windowMs: 60_000, max: 120 }));
 
 // Host split: when REDIRECT_HOST / API_HOST are configured, each host only
 // serves its intended surface. This prevents the API from being reachable on
@@ -87,7 +82,6 @@ app.post("/authorize", (c) =>
 );
 
 app.route("/api", apiRoute);
-app.route("/mcp", mcpRoute);
 app.route("/", redirectRoute);
 
 app.notFound((c) => c.json({ error: "not found" }, 404));

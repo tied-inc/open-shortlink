@@ -1,7 +1,6 @@
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
 import type { Bindings } from "./bindings";
-import { timingSafeEqual } from "./lib/crypto";
 import { mcpHandlers } from "./mcp/server";
 import app from "./app";
 
@@ -34,14 +33,4 @@ export default new OAuthProvider<Bindings>({
   scopesSupported: ["mcp"],
   accessTokenTTL: 3600,
   refreshTokenTTL: 2592000,
-
-  // Allow existing API_TOKEN Bearer auth on /mcp for CLI clients
-  // (Claude Code, curl, ChatGPT connectors, etc.).
-  resolveExternalToken: async ({ token, env }) => {
-    const expected = env.API_TOKEN ?? "";
-    if (token && expected && timingSafeEqual(token, expected)) {
-      return { props: { role: "owner" } };
-    }
-    return null;
-  },
 });
