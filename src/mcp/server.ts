@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import type { Bindings } from "../bindings";
-import { bearerAuth } from "../middleware/auth";
 import { tools, toolMap, type ToolContext } from "./tools";
 import {
   LinkConflictError,
@@ -114,12 +113,6 @@ mcpHandlers.get("/", (c) => {
 mcpHandlers.delete("/", (c) => {
   return c.body(null, 405);
 });
-
-// Bearer-auth-wrapped version for the default handler (backward compat with
-// CLI clients that hit /mcp directly with Authorization: Bearer <API_TOKEN>).
-export const mcpRoute = new Hono<{ Bindings: Bindings }>();
-mcpRoute.use("*", bearerAuth);
-mcpRoute.route("/", mcpHandlers);
 
 function acceptsJsonResponse(accept: string): boolean {
   if (!accept) return true;

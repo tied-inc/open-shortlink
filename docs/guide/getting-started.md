@@ -1,14 +1,17 @@
 # クイックスタート
 
-::: warning はじめに: 認証トークンが必須です
-Open Shortlink の API/MCP は `API_TOKEN` （Bearer 認証）を設定しないと
-**503** を返し続けます（fail-closed 設計）。デプロイ直後に必ずトークンを
-設定してください。詳しくは [セキュリティポリシー](./security) を参照。
+::: warning はじめに: 認証プロバイダ（IdP）の設定が必須です
+Open Shortlink は、ユーザー認証を外部 IdP に委任します。**Cloudflare Access**
+か **任意の OpenID Connect プロバイダ**（Auth0 / Okta / Entra ID /
+Google Workspace / Keycloak など）のどちらかを必ず構成してください。
+未設定のままでは `/authorize` が **503** を返し、MCP クライアントは
+サインインできません（fail-closed 設計）。詳しくは
+[セキュリティポリシー](./security) を参照。
 :::
 
 ## Deploy to Cloudflare（1 クリック）
 
-ボタンを押すと、セットアップ画面で `API_TOKEN` の入力と Worker 名の
+ボタンを押すと、セットアップ画面で IdP 用のシークレットと Worker 名の
 確認を求められます。送信すると fork → KV の自動プロビジョン →
 Worker デプロイ → Secret 登録 まで一気に完了します。
 
@@ -27,25 +30,51 @@ Worker デプロイ → Secret 登録 まで一気に完了します。
 を使う場合のみ必要な初期化作業です（2 回目以降のフォーク先では不要）。
 :::
 
-### 入力すべき値
+### 入力すべき値（OIDC 構成の場合）
+
+汎用 OIDC プロバイダ（Auth0 / Okta / Google / Entra ID / Keycloak / Authelia 等）
+を使う場合、上流 IdP で新しい OAuth アプリケーションを登録し、
+その **`redirect_uri`** を `https://<your-worker>.workers.dev/oauth/callback`
+に設定してから下の値を入力します。
 
 | 項目 | 値 | 備考 |
 |---|---|---|
 | Worker 名 | `open-shortlink` 等 | 後から変更不可（再デプロイで引継ぎ） |
-| `API_TOKEN` | 24 文字以上のランダム値 | `openssl rand -base64 32` の出力を貼付け推奨 |
+| `OIDC_ISSUER` | 例: `https://accounts.google.com` | 上流 IdP の issuer URL |
+| `OIDC_CLIENT_ID` | 上流で発行された client_id | — |
+| `OIDC_CLIENT_SECRET` | 上流で発行された client_secret | Secret として保管 |
+| `OIDC_ALLOWED_SUBS` | `you@example.com` | サインインを許可する email / sub のカンマ区切り |
+| `OIDC_SCOPES` | 空欄（既定: `openid email profile`） | 必要なら追加 |
 | `CORS_ALLOW_ORIGIN` | 空欄 | UI を別ドメインに建てる場合のみ |
 | `PUBLIC_BASE_URL` | 空欄 | カスタムドメイン設定後に追加 |
+
+### 入力すべき値（Cloudflare Access の場合）
+
+Worker を Access アプリケーションの背後に置く場合は OIDC の値は不要で、
+代わりに次を設定します。Access がユーザー認証を担当し、`/authorize`
+リクエストに載せる `Cf-Access-Jwt-Assertion` を Worker が検証します。
+
+| 項目 | 値 | 備考 |
+|---|---|---|
+| `CF_ACCESS_TEAM_DOMAIN` | `acme.cloudflareaccess.com` | Access のチームドメイン |
+| `CF_ACCESS_AUD` | Access アプリの AUD タグ | Zero Trust ダッシュボードで確認 |
+| `ACCESS_ALLOWED_EMAILS` | `you@example.com,teammate@example.com` | サインイン許可リスト |
 
 ### デプロイ後の動作確認
 
 ```bash
-curl -i https://<your-worker>.workers.dev/api/links
-# → 401 unauthorized が返れば成功（正しく認証が効いている）
-# → 503 なら API_TOKEN が未入力 / 24 文字未満 / 既知プレースホルダ
-```
+# OAuth discovery が返れば OAuth レイヤーは動作中
+curl -s https://<your-worker>.workers.dev/.well-known/oauth-authorization-server | jq .
 
-`503` が返る場合は Cloudflare ダッシュボード → Worker → Settings →
-Variables で `API_TOKEN` を上書きしてください。
+# 認証付きエンドポイントはトークンなしだと 401 になる
+curl -i https://<your-worker>.workers.dev/api/links
+# → 401 unauthorized が返れば成功（OAuth が正しく掛かっている）
+
+# /authorize は IdP 未設定だと 503、設定済みなら OIDC モードでは上流にリダイレクトする
+curl -i "https://<your-worker>.workers.dev/authorize?response_type=code&client_id=test&redirect_uri=https://example"
+# → 503 なら IdP 設定が抜けている（Workers → Settings → Variables を確認）
+# → 302 Location: https://<idp>/... なら OIDC モードが動作中
+```
 
 ### 任意・推奨の追加設定
 
@@ -63,7 +92,6 @@ Variables で `API_TOKEN` を上書きしてください。
   workers_dev = false
   preview_urls = false
   ```
-- [Cloudflare Access で API ホストを保護](./security#二線目-cloudflare-access推奨)（組織運用向け）
 
 ## 手動セットアップ
 
@@ -86,11 +114,18 @@ bun install
 # 3. Cloudflare にログイン
 wrangler login
 
-# 4. API_TOKEN を設定（必須）
-#    KV 名前空間は次の deploy が自動作成するため事前準備は不要
-openssl rand -base64 32 | wrangler secret put API_TOKEN
+# 4. IdP を 1 つ設定（以下のどちらか）
+#    --- OIDC モードの場合 ---
+wrangler secret put OIDC_ISSUER          # 例: https://accounts.google.com
+wrangler secret put OIDC_CLIENT_ID
+wrangler secret put OIDC_CLIENT_SECRET
+wrangler secret put OIDC_ALLOWED_SUBS    # 例: you@example.com
+#    --- Cloudflare Access モードの場合 ---
+# wrangler secret put CF_ACCESS_TEAM_DOMAIN
+# wrangler secret put CF_ACCESS_AUD
+# wrangler secret put ACCESS_ALLOWED_EMAILS
 
-# 5. デプロイ（KV が自動作成されバインドされる）
+# 5. デプロイ（KV / OAUTH_KV が自動作成されバインドされる）
 bun run deploy
 ```
 
@@ -98,7 +133,14 @@ bun run deploy
 
 | 変数名 | 説明 | 必須 |
 |---|---|---|
-| `API_TOKEN` | API / MCP 認証用の Bearer token（24 文字以上） | Yes |
+| `OIDC_ISSUER` | 上流 OIDC プロバイダの issuer URL | Access を使わないなら Yes |
+| `OIDC_CLIENT_ID` | 上流で発行された client_id | 同上 |
+| `OIDC_CLIENT_SECRET` | 上流の client_secret（Secret として保存） | 同上 |
+| `OIDC_ALLOWED_SUBS` | サインインを許可する email / sub のカンマ区切り | 同上 |
+| `OIDC_SCOPES` | 上流に要求するスコープ（既定: `openid email profile`） | No |
+| `CF_ACCESS_TEAM_DOMAIN` | `<team>.cloudflareaccess.com` | Access を使うなら Yes |
+| `CF_ACCESS_AUD` | Access アプリの AUD タグ | 同上 |
+| `ACCESS_ALLOWED_EMAILS` | 許可 email のカンマ区切り | 同上 |
 | `CORS_ALLOW_ORIGIN` | CORS allowlist（未設定で全許可） | No |
 | `PUBLIC_BASE_URL` | `shortUrl` に使う正本オリジン | No |
 | `CF_ACCOUNT_ID` / `CF_ANALYTICS_TOKEN` | 分析 API を使う場合のみ | No |
@@ -111,8 +153,8 @@ bun run deploy
 - **KV Namespace** (`SHORTLINKS`) — slug → URL のマッピング保存。
   Wrangler 4.45+ が `[[kv_namespaces]]` に `id` が無いことを検知して
   `open-shortlink-shortlinks` のような名前で新規作成する
-- **KV Namespace** (`OAUTH_KV`) — OAuth トークン・クライアント登録の保存。
-  `SHORTLINKS` と同様に自動作成される
+- **KV Namespace** (`OAUTH_KV`) — OAuth トークン・クライアント登録、
+  OIDC discovery キャッシュ、上流認可の state 保存。自動作成される
 - **Analytics Engine** (`ANALYTICS`) — クリックデータの記録。
   **dataset は事前作成が必要**（上記「事前準備」を参照）。Cloudflare の
   仕様で、アカウントで Analytics Engine を初めて使う場合は最初の dataset
@@ -140,6 +182,9 @@ bun test
 1. Claude Desktop → **設定** → **カスタムコネクタを追加**
 2. **名前**: `Open Shortlink`、**リモート MCP サーバー URL**: `https://<your-worker>.workers.dev/mcp`
 3. OAuth フィールドは空欄のまま **追加** をクリック
-4. ブラウザで認可ページが開くので、デプロイ時に設定した **API Token** を入力して **Authorize**
+4. ブラウザで `/authorize` が開き、設定した IdP（Google / Okta / Auth0 /
+   Access 等）のサインイン画面にリダイレクトされます。`OIDC_ALLOWED_SUBS`
+   もしくは `ACCESS_ALLOWED_EMAILS` に含まれるアカウントで認証すると、
+   自動的に Claude Desktop に戻り接続が完了します。
 
 詳しくは [MCP サーバー → Claude Desktop](../mcp#claude-desktop) を参照。

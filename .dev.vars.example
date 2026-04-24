@@ -1,21 +1,48 @@
-# Required. Strong random value of at least 24 characters for the Bearer
-# token that authenticates /api/* and /mcp*.
-# Generate with e.g. `openssl rand -base64 32` or `uuidgen`.
-# Well-known placeholder values (dev-token-change-me, test-token, etc.) are
-# rejected at runtime — the worker returns 503 until a strong value is set.
-# The Deploy to Cloudflare button prompts for this value during setup.
-API_TOKEN=replace-with-output-of-openssl-rand-base64-32
+# ---------------------------------------------------------------------------
+# Identity Provider (IdP) configuration — REQUIRED
+#
+# Open Shortlink delegates user authentication to an upstream IdP. Configure
+# EXACTLY ONE of the two modes below. If neither is set (or both are), the
+# /authorize endpoint returns 503 and MCP clients cannot sign in.
+# ---------------------------------------------------------------------------
 
-# OAuth KV namespace (OAUTH_KV) is auto-provisioned by Wrangler.
-# No manual setup needed for local dev — wrangler dev creates it automatically.
+# --- Mode A: Cloudflare Access ---------------------------------------------
+# Use this when the Worker's /authorize endpoint is fronted by a Cloudflare
+# Access application. Access handles the sign-in flow and injects a signed
+# JWT; we verify it against the team's JWKS and read the user's email.
+#
+# CF_ACCESS_TEAM_DOMAIN=acme.cloudflareaccess.com
+# CF_ACCESS_AUD=<the AUD tag of the Access application fronting this worker>
+# ACCESS_ALLOWED_EMAILS=you@example.com,teammate@example.com
+
+# --- Mode B: Generic OIDC --------------------------------------------------
+# Use this to delegate to any OpenID Connect provider (Auth0, Okta, Entra ID,
+# Google Workspace, Keycloak, Authelia, etc.). The Worker acts as an OIDC
+# Relying Party: on /authorize we redirect to the upstream IdP, and on
+# /oauth/callback we verify the returned ID token.
+#
+# Register a new OAuth application at your IdP with:
+#   redirect_uri = https://<your-worker>/oauth/callback
+#   response_type = code
+#   grant_type = authorization_code with PKCE
+#
+# OIDC_ISSUER=https://accounts.google.com
+# OIDC_CLIENT_ID=your-upstream-client-id
+# OIDC_CLIENT_SECRET=your-upstream-client-secret
+# OIDC_SCOPES=openid email profile
+# OIDC_ALLOWED_SUBS=you@example.com,teammate@example.com
+
+# ---------------------------------------------------------------------------
+# KV / Analytics Engine bindings are auto-provisioned by Wrangler on first
+# deploy; no manual setup is needed for local dev.
+# ---------------------------------------------------------------------------
 
 # Optional: Analytics Engine SQL query credentials.
 # CF_ACCOUNT_ID=your-cloudflare-account-id
 # CF_ANALYTICS_TOKEN=your-cloudflare-api-token-with-account-analytics-read
 
 # Optional: comma-separated origin allowlist for CORS. Unset or `*` leaves
-# every origin allowed (safe because the API is bearer-auth only). Set to a
-# specific origin list when you publish a UI.
+# every origin allowed. Set to a specific origin list when you publish a UI.
 # CORS_ALLOW_ORIGIN=https://ui.example.com,https://admin.example.com
 
 # Optional: canonical origin used in `shortUrl` responses and for edge cache
@@ -24,6 +51,6 @@ API_TOKEN=replace-with-output-of-openssl-rand-base64-32
 # PUBLIC_BASE_URL=https://go.example.com
 
 # Optional: host split. When both are set, the redirect host refuses
-# /api/* and /mcp/* traffic, and the API host refuses /:slug traffic.
+# /api/*, /mcp/*, and OAuth traffic, and the API host refuses /:slug traffic.
 # REDIRECT_HOST=go.example.com
 # API_HOST=api.example.com

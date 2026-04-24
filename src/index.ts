@@ -2,15 +2,18 @@ import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import { Hono } from "hono";
 import type { Bindings } from "./bindings";
 import { mcpHandlers } from "./mcp/server";
+import { apiRoute } from "./routes/api";
 import app from "./app";
 
 // ---------------------------------------------------------------------------
-// API handler — receives /mcp requests that have a valid OAuth access token.
-// OAuthProvider already validated the token so no bearer middleware needed.
+// API handler — receives /api/* and /mcp/* requests that already have a valid
+// OAuth access token. OAuthProvider performs the token validation before
+// calling into this handler, so no bearer middleware is needed downstream.
 // ---------------------------------------------------------------------------
-const oauthMcpHandler = {
+const authenticatedHandler = {
   fetch(request: Request, env: Bindings, ctx: ExecutionContext) {
     const handler = new Hono<{ Bindings: Bindings }>();
+    handler.route("/api", apiRoute);
     handler.route("/mcp", mcpHandlers);
     return handler.fetch(request, env, ctx);
   },
@@ -19,13 +22,14 @@ const oauthMcpHandler = {
 // ---------------------------------------------------------------------------
 // OAuthProvider wraps both handlers and adds OAuth endpoints automatically:
 //   /.well-known/oauth-authorization-server — metadata discovery
-//   /token   — token exchange (handled by OAuthProvider)
-//   /register — dynamic client registration (handled by OAuthProvider)
-//   /authorize — rendered by the defaultHandler (our Hono app above)
+//   /.well-known/oauth-protected-resource   — RFC 9728 resource metadata
+//   /token     — token exchange
+//   /register  — dynamic client registration
+//   /authorize — rendered by the defaultHandler (delegates to IdP)
 // ---------------------------------------------------------------------------
 export default new OAuthProvider<Bindings>({
-  apiRoute: "/mcp",
-  apiHandler: oauthMcpHandler,
+  apiRoute: ["/api", "/mcp"],
+  apiHandler: authenticatedHandler,
   defaultHandler: app,
   authorizeEndpoint: "/authorize",
   tokenEndpoint: "/token",

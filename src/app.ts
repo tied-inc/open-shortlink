@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import type { Bindings } from "./bindings";
-import { handleAuthorize } from "./oauth/authorize";
-import { apiRoute } from "./routes/api";
+import { handleAuthorize, handleOauthCallback } from "./oauth/authorize";
 import { redirectRoute } from "./routes/redirect";
 import { cors } from "./middleware/cors";
 import { requestLogger } from "./middleware/logger";
@@ -26,12 +25,21 @@ app.use("/api/*", rateLimit({ windowMs: 60_000, max: 120 }));
 // serves its intended surface. This prevents the API from being reachable on
 // the short-link host (and vice versa) when routes are bound to multiple
 // subdomains on the same worker.
+//
+// "API-side" paths include OAuth endpoints (/authorize, /oauth/callback,
+// /token, /register, /.well-known/*) because an MCP client discovers and
+// completes OAuth via the same host that serves /mcp.
 function isApiOrMcpPath(path: string): boolean {
   return (
     path === "/api" ||
     path.startsWith("/api/") ||
     path === "/mcp" ||
-    path.startsWith("/mcp/")
+    path.startsWith("/mcp/") ||
+    path === "/authorize" ||
+    path === "/oauth/callback" ||
+    path === "/token" ||
+    path === "/register" ||
+    path.startsWith("/.well-known/")
   );
 }
 
@@ -73,7 +81,8 @@ app.get("/robots.txt", () =>
 );
 app.get("/favicon.ico", () => new Response(null, { status: 204 }));
 
-// OAuth authorize page — rendered in the browser during the OAuth flow.
+// OAuth authorize entry point. Delegates to the configured upstream IdP
+// (Cloudflare Access or generic OIDC). See src/oauth/authorize.ts.
 app.get("/authorize", (c) =>
   handleAuthorize(c.req.raw, c.env as Parameters<typeof handleAuthorize>[1]),
 );
@@ -81,7 +90,15 @@ app.post("/authorize", (c) =>
   handleAuthorize(c.req.raw, c.env as Parameters<typeof handleAuthorize>[1]),
 );
 
-app.route("/api", apiRoute);
+// OIDC callback — only reached when OIDC_ISSUER is configured. The upstream
+// IdP redirects the browser here with ?code=...&state=... after sign-in.
+app.get("/oauth/callback", (c) =>
+  handleOauthCallback(
+    c.req.raw,
+    c.env as Parameters<typeof handleOauthCallback>[1],
+  ),
+);
+
 app.route("/", redirectRoute);
 
 app.notFound((c) => c.json({ error: "not found" }, 404));

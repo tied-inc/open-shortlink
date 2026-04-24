@@ -12,8 +12,8 @@ export function generateSlug(): string {
 
 // Reserved prefixes that would collide with routing or conventional paths
 // served directly by the worker (robots, favicon, health checks, sitemap,
-// well-known) as well as additional ops-style names that should not become
-// user-visible short links.
+// well-known) as well as the OAuth endpoint paths and additional ops-style
+// names that should not become user-visible short links.
 const RESERVED_PREFIXES = [
   "api",
   "mcp",
@@ -26,6 +26,10 @@ const RESERVED_PREFIXES = [
   "favicon",
   "sitemap",
   "well-known",
+  "authorize",
+  "token",
+  "register",
+  "oauth",
 ];
 const SLUG_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 

@@ -10,11 +10,32 @@
     "docs_url": "https://tied-inc.github.io/open-shortlink/",
     "publish": false,
     "bindings": {
-      "API_TOKEN": {
-        "description": "**Required.** Bearer token for the REST API and MCP server. Must be **24+ random characters** — e.g. run `openssl rand -base64 32` and paste the result. Placeholders like `dev-token-change-me` are rejected at runtime. See the [security policy](https://tied-inc.github.io/open-shortlink/guide/security) for rotation and Cloudflare Access guidance."
+      "OIDC_ISSUER": {
+        "description": "**Required unless using Cloudflare Access.** OpenID Connect issuer URL (e.g. `https://accounts.google.com`, your Auth0/Okta/Entra tenant, or a Keycloak realm). Register a new OAuth app at that IdP and set its redirect URI to `https://<this-worker>/oauth/callback`. See the [security policy](https://tied-inc.github.io/open-shortlink/guide/security)."
+      },
+      "OIDC_CLIENT_ID": {
+        "description": "Required with OIDC_ISSUER. The client_id your IdP issued when you registered this Worker as an OAuth application."
+      },
+      "OIDC_CLIENT_SECRET": {
+        "description": "Required with OIDC_ISSUER. The confidential client secret. Store it as a Worker Secret, not a plain variable."
+      },
+      "OIDC_ALLOWED_SUBS": {
+        "description": "Required with OIDC_ISSUER. Comma-separated allowlist of email addresses (or `sub` claims) permitted to sign in. Without this the worker refuses all upstream identities."
+      },
+      "OIDC_SCOPES": {
+        "description": "Optional. Space-separated OAuth scopes requested from the upstream IdP. Defaults to `openid email profile`."
+      },
+      "CF_ACCESS_TEAM_DOMAIN": {
+        "description": "**Alternative to OIDC.** Set this (plus CF_ACCESS_AUD and ACCESS_ALLOWED_EMAILS) when this Worker is fronted by a Cloudflare Access application. Example: `acme.cloudflareaccess.com`."
+      },
+      "CF_ACCESS_AUD": {
+        "description": "Required with CF_ACCESS_TEAM_DOMAIN. The AUD tag of the Access application fronting this Worker."
+      },
+      "ACCESS_ALLOWED_EMAILS": {
+        "description": "Required with CF_ACCESS_TEAM_DOMAIN. Comma-separated allowlist of email addresses permitted to sign in."
       },
       "CORS_ALLOW_ORIGIN": {
-        "description": "Optional. Comma-separated origin allowlist for CORS (e.g. `https://ui.example.com`). Leave empty or `*` to allow any origin — safe because the API is bearer-auth only."
+        "description": "Optional. Comma-separated origin allowlist for CORS (e.g. `https://ui.example.com`). Leave empty or `*` to allow any origin."
       },
       "PUBLIC_BASE_URL": {
         "description": "Optional. Canonical origin returned in `shortUrl` responses. Set this once you bind a custom domain (e.g. `https://go.example.com`)."
@@ -44,6 +65,7 @@
     "@cloudflare/workers-oauth-provider": "^0.4.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "hono": "^4.12.14",
+    "jose": "^6.2.2",
     "nanoid": "^5.1.9",
     "zod": "^4.3.6"
   }

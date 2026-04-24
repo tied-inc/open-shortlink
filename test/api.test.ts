@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { Bindings } from "../src/bindings";
 import { apiRoute } from "../src/routes/api";
-import { authHeader, createTestCtx, createTestEnv } from "./helpers/test-app";
+import { createTestCtx, createTestEnv } from "./helpers/test-app";
+
+// Auth is enforced by OAuthProvider at the /api apiRoute boundary in
+// src/index.ts. Tests here exercise the Hono handler directly so they
+// bypass that layer — every request is treated as already authenticated.
+const JSON_HEADERS = { "content-type": "application/json" };
 
 function buildApp() {
   const app = new Hono<{ Bindings: Bindings }>();
@@ -24,36 +29,6 @@ async function req(
   );
 }
 
-describe("API authentication", () => {
-  const app = buildApp();
-  const env = createTestEnv();
-
-  test("rejects missing Authorization header", async () => {
-    const res = await req(app, "/api/links", { method: "GET" }, env);
-    expect(res.status).toBe(401);
-  });
-
-  test("rejects wrong token", async () => {
-    const res = await req(
-      app,
-      "/api/links",
-      { method: "GET", headers: { Authorization: "Bearer wrong" } },
-      env,
-    );
-    expect(res.status).toBe(401);
-  });
-
-  test("accepts correct token", async () => {
-    const res = await req(
-      app,
-      "/api/links",
-      { method: "GET", headers: authHeader() },
-      env,
-    );
-    expect(res.status).toBe(200);
-  });
-});
-
 describe("POST /api/links", () => {
   let app: ReturnType<typeof buildApp>;
   let env: Bindings;
@@ -69,7 +44,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://example.com" }),
       },
       env,
@@ -87,7 +62,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://example.com", slug: "hello" }),
       },
       env,
@@ -103,7 +78,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "not a url" }),
       },
       env,
@@ -117,7 +92,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://example.com", slug: "api" }),
       },
       env,
@@ -131,7 +106,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: "{ invalid",
       },
       env,
@@ -149,7 +124,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://example.com", slug: "abc" }),
       },
       envWithBase,
@@ -169,7 +144,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://go.example.com/evil" }),
       },
       envWithBase,
@@ -183,7 +158,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({
           url: "https://example.com",
           slug: "geo1",
@@ -210,7 +185,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({
           url: "https://example.com",
           geo: { USA: "https://example.com/en" },
@@ -227,7 +202,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({
           url: "https://example.com",
           geo: { US: "not-a-url" },
@@ -244,7 +219,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://a.com", slug: "dup" }),
       },
       env,
@@ -254,7 +229,7 @@ describe("POST /api/links", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://b.com", slug: "dup" }),
       },
       env,
@@ -278,7 +253,7 @@ describe("GET /api/links/:slug", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://example.com", slug: "abc" }),
       },
       env,
@@ -287,7 +262,7 @@ describe("GET /api/links/:slug", () => {
     const res = await req(
       app,
       "/api/links/abc",
-      { method: "GET", headers: authHeader() },
+      { method: "GET" },
       env,
     );
     expect(res.status).toBe(200);
@@ -299,7 +274,7 @@ describe("GET /api/links/:slug", () => {
     const res = await req(
       app,
       "/api/links/missing",
-      { method: "GET", headers: authHeader() },
+      { method: "GET" },
       env,
     );
     expect(res.status).toBe(404);
@@ -321,7 +296,7 @@ describe("DELETE /api/links/:slug", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://example.com", slug: "abc" }),
       },
       env,
@@ -329,7 +304,7 @@ describe("DELETE /api/links/:slug", () => {
     const res = await req(
       app,
       "/api/links/abc",
-      { method: "DELETE", headers: authHeader() },
+      { method: "DELETE" },
       env,
     );
     expect(res.status).toBe(204);
@@ -337,7 +312,7 @@ describe("DELETE /api/links/:slug", () => {
     const getRes = await req(
       app,
       "/api/links/abc",
-      { method: "GET", headers: authHeader() },
+      { method: "GET" },
       env,
     );
     expect(getRes.status).toBe(404);
@@ -347,7 +322,7 @@ describe("DELETE /api/links/:slug", () => {
     const res = await req(
       app,
       "/api/links/missing",
-      { method: "DELETE", headers: authHeader() },
+      { method: "DELETE" },
       env,
     );
     expect(res.status).toBe(404);
@@ -361,7 +336,7 @@ describe("GET /api/links (list)", () => {
     const res = await req(
       app,
       "/api/links",
-      { method: "GET", headers: authHeader() },
+      { method: "GET" },
       env,
     );
     expect(res.status).toBe(200);
@@ -378,7 +353,7 @@ describe("GET /api/links (list)", () => {
         "/api/links",
         {
           method: "POST",
-          headers: { ...authHeader(), "content-type": "application/json" },
+          headers: JSON_HEADERS,
           body: JSON.stringify({ url: `https://${slug}.example`, slug }),
         },
         env,
@@ -387,7 +362,7 @@ describe("GET /api/links (list)", () => {
     const res = await req(
       app,
       "/api/links?limit=10",
-      { method: "GET", headers: authHeader() },
+      { method: "GET" },
       env,
     );
     const body = (await res.json()) as { links: { slug: string }[] };
@@ -422,7 +397,7 @@ describe("Unexpected internal errors", () => {
       "https://test.example/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "https://example.com", slug: "abc" }),
       },
       brokenEnv(),
@@ -435,7 +410,7 @@ describe("Unexpected internal errors", () => {
     const app = buildAppWithBrokenKV();
     const res = await app.request(
       "https://test.example/api/links/anything",
-      { method: "GET", headers: authHeader() },
+      { method: "GET" },
       brokenEnv(),
       createTestCtx(),
     );
@@ -446,7 +421,7 @@ describe("Unexpected internal errors", () => {
     const app = buildAppWithBrokenKV();
     const res = await app.request(
       "https://test.example/api/links/anything",
-      { method: "DELETE", headers: authHeader() },
+      { method: "DELETE" },
       brokenEnv(),
       createTestCtx(),
     );
@@ -464,7 +439,7 @@ describe("POST /api/links hardening", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "http://127.0.0.1/admin" }),
       },
       env,
@@ -481,7 +456,7 @@ describe("POST /api/links hardening", () => {
       "/api/links",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ url: "http://169.254.169.254/latest/" }),
       },
       env,
@@ -505,7 +480,7 @@ describe("POST /api/links hardening", () => {
         "/api/links",
         {
           method: "POST",
-          headers: { ...authHeader(), "content-type": "application/json" },
+          headers: JSON_HEADERS,
           body: JSON.stringify({ url }),
         },
         env,
@@ -529,7 +504,6 @@ describe("POST /api/links hardening", () => {
       {
         method: "POST",
         headers: {
-          ...authHeader(),
           "content-type": "application/json",
           "content-length": String(body.length),
         },
@@ -547,7 +521,7 @@ describe("POST /api/links hardening", () => {
     const res = await req(
       app,
       "/api/links/" + encodeURIComponent("bad slug"),
-      { method: "GET", headers: authHeader() },
+      { method: "GET" },
       env,
     );
     expect(res.status).toBe(400);
@@ -568,7 +542,7 @@ describe("Analytics endpoints without credentials", () => {
       const res = await req(
         app,
         path,
-        { method: "GET", headers: authHeader() },
+        { method: "GET" },
         env,
       );
       expect(res.status).toBe(503);

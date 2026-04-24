@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Bindings } from "../bindings";
-import { bearerAuth } from "../middleware/auth";
 import { LinkStore } from "../storage/kv";
 import {
   LinkConflictError,
@@ -12,9 +11,10 @@ import {
 import { AnalyticsQuery, type Period, type Interval } from "../analytics/query";
 import { isValidSlug } from "../lib/slug";
 
+// Auth is enforced by the OAuthProvider at the /api and /mcp apiRoute
+// boundary in src/index.ts. Requests that reach this handler already carry a
+// validated access token, so no bearer middleware is needed here.
 export const apiRoute = new Hono<{ Bindings: Bindings }>();
-
-apiRoute.use("*", bearerAuth);
 
 // Upper bound on JSON payloads. `url` is capped to 2048 chars by the
 // validator; any body substantially larger than that is either malformed or

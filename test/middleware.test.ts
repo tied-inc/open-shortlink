@@ -2,9 +2,8 @@ import { describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import { rateLimit } from "../src/middleware/rate-limit";
 import { cors } from "../src/middleware/cors";
-import { bearerAuth } from "../src/middleware/auth";
 import { securityHeaders } from "../src/middleware/security-headers";
-import { TEST_TOKEN, createTestCtx, createTestEnv } from "./helpers/test-app";
+import { createTestCtx, createTestEnv } from "./helpers/test-app";
 
 describe("rateLimit", () => {
   test("allows requests under the limit", async () => {
@@ -221,90 +220,3 @@ describe("securityHeaders", () => {
   });
 });
 
-describe("bearerAuth", () => {
-  test("rejects missing token", async () => {
-    const app = new Hono();
-    app.use("*", bearerAuth);
-    app.get("/", (c) => c.text("ok"));
-
-    const env = createTestEnv();
-    const res = await app.request("/", {}, env, createTestCtx());
-    expect(res.status).toBe(401);
-    expect(res.headers.get("WWW-Authenticate")).toContain("Bearer");
-  });
-
-  test("accepts correct token", async () => {
-    const app = new Hono();
-    app.use("*", bearerAuth);
-    app.get("/", (c) => c.text("ok"));
-
-    const env = createTestEnv();
-    const res = await app.request(
-      "/",
-      { headers: { Authorization: `Bearer ${TEST_TOKEN}` } },
-      env,
-      createTestCtx(),
-    );
-    expect(res.status).toBe(200);
-  });
-
-  test("rejects token with wrong length", async () => {
-    const app = new Hono();
-    app.use("*", bearerAuth);
-    app.get("/", (c) => c.text("ok"));
-
-    const env = createTestEnv();
-    const res = await app.request(
-      "/",
-      { headers: { Authorization: "Bearer short" } },
-      env,
-      createTestCtx(),
-    );
-    expect(res.status).toBe(401);
-  });
-
-  test("returns 503 when API_TOKEN is unset", async () => {
-    const app = new Hono();
-    app.use("*", bearerAuth);
-    app.get("/", (c) => c.text("ok"));
-
-    const env = createTestEnv({ apiToken: "" });
-    const res = await app.request(
-      "/",
-      { headers: { Authorization: `Bearer ${TEST_TOKEN}` } },
-      env,
-      createTestCtx(),
-    );
-    expect(res.status).toBe(503);
-  });
-
-  test("returns 503 when API_TOKEN is a well-known placeholder", async () => {
-    const app = new Hono();
-    app.use("*", bearerAuth);
-    app.get("/", (c) => c.text("ok"));
-
-    const env = createTestEnv({ apiToken: "dev-token-change-me" });
-    const res = await app.request(
-      "/",
-      { headers: { Authorization: `Bearer dev-token-change-me` } },
-      env,
-      createTestCtx(),
-    );
-    expect(res.status).toBe(503);
-  });
-
-  test("returns 503 when API_TOKEN is shorter than 24 chars", async () => {
-    const app = new Hono();
-    app.use("*", bearerAuth);
-    app.get("/", (c) => c.text("ok"));
-
-    const env = createTestEnv({ apiToken: "short-token-abc" });
-    const res = await app.request(
-      "/",
-      { headers: { Authorization: "Bearer short-token-abc" } },
-      env,
-      createTestCtx(),
-    );
-    expect(res.status).toBe(503);
-  });
-});

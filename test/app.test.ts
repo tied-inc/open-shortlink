@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import app from "../src/app";
 import type { Bindings } from "../src/bindings";
 import { LinkStore } from "../src/storage/kv";
-import { authHeader, createTestCtx, createTestEnv } from "./helpers/test-app";
+import { createTestCtx, createTestEnv } from "./helpers/test-app";
 
 describe("Reserved conventional paths", () => {
   let env: Bindings;
@@ -73,7 +73,23 @@ describe("Host-based routing", () => {
     });
     const res = await app.request(
       "https://go.example.com/api/links",
-      { method: "GET", headers: authHeader() },
+      { method: "GET" },
+      env,
+      createTestCtx(),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("redirect host returns 404 for OAuth endpoints", async () => {
+    // OAuth endpoints live on the API host; the redirect host must not leak
+    // them even though they are served by the same worker.
+    const env = createTestEnv({
+      redirectHost: "go.example.com",
+      apiHost: "api.example.com",
+    });
+    const res = await app.request(
+      "https://go.example.com/authorize",
+      { method: "GET" },
       env,
       createTestCtx(),
     );
@@ -96,21 +112,24 @@ describe("Host-based routing", () => {
     expect(res.headers.get("location")).toBe("https://example.com");
   });
 
-  test("API host still serves /api/*", async () => {
+  test("API host serves /health", async () => {
+    // /health is whitelisted on the API host (for uptime monitors). The
+    // /api/* and /mcp/* routes themselves live on OAuthProvider (src/index.ts)
+    // and are not reachable through the defaultHandler covered by this test.
     const env = createTestEnv({
       redirectHost: "go.example.com",
       apiHost: "api.example.com",
     });
     const res = await app.request(
-      "https://api.example.com/api/links",
-      { method: "GET", headers: authHeader() },
+      "https://api.example.com/health",
+      { method: "GET" },
       env,
       createTestCtx(),
     );
     expect(res.status).toBe(200);
   });
 
-  test("without host split, all paths work on any host", async () => {
+  test("without host split, redirect paths work on any host", async () => {
     const env = createTestEnv();
     await new LinkStore(env.SHORTLINKS).put("abc", "https://example.com");
     const redirectRes = await app.request(
@@ -120,12 +139,5 @@ describe("Host-based routing", () => {
       createTestCtx(),
     );
     expect(redirectRes.status).toBe(302);
-    const apiRes = await app.request(
-      "https://anything.example/api/links",
-      { method: "GET", headers: authHeader() },
-      env,
-      createTestCtx(),
-    );
-    expect(apiRes.status).toBe(200);
   });
 });

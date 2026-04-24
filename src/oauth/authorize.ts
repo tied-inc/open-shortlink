@@ -1,92 +1,239 @@
 import type { OAuthHelpers } from "@cloudflare/workers-oauth-provider";
 import type { Bindings } from "../bindings";
-import { timingSafeEqual } from "../lib/crypto";
+import { isAllowed, selectIdpMode } from "./idp";
+import { readAccessJwt, verifyAccessJwt } from "./idp/access";
+import {
+  buildUpstreamAuthorizeUrl,
+  callbackUrl,
+  consumePendingAuth,
+  createPkce,
+  exchangeCode,
+  fetchDiscovery,
+  randomState,
+  savePendingAuth,
+  verifyIdToken,
+} from "./idp/oidc";
 
 interface AuthEnv extends Bindings {
   OAUTH_PROVIDER: OAuthHelpers;
 }
 
+// ---------------------------------------------------------------------------
+// GET /authorize
+//
+// Entry point for MCP clients (Claude Desktop etc.) beginning the OAuth dance.
+// We parse the downstream request to confirm the client is known, then hand
+// off to the configured upstream IdP:
+//
+//   - Access mode: verify the Cf-Access-Jwt-Assertion header that Cloudflare
+//     put on the request and complete immediately.
+//   - OIDC mode:   stash the downstream request under a random state in KV
+//     and redirect the browser to the upstream authorization endpoint.
+//
+// If neither mode is configured, or both are, we return a 503 so the operator
+// is told plainly why MCP is not working (fail-closed).
+// ---------------------------------------------------------------------------
 export async function handleAuthorize(
   request: Request,
   env: AuthEnv,
 ): Promise<Response> {
+  const mode = selectIdpMode(env);
+  if (mode.kind === "misconfigured") {
+    return errorResponse(
+      503,
+      "server misconfigured",
+      mode.reason,
+    );
+  }
+
   const oauthReq = await env.OAUTH_PROVIDER.parseAuthRequest(request);
   const client = await env.OAUTH_PROVIDER.lookupClient(oauthReq.clientId);
-
   if (!client) {
-    return new Response("Unknown client", { status: 400 });
+    return errorResponse(400, "unknown client", "client_id not registered");
   }
 
-  if (request.method === "GET") {
-    return new Response(renderPage(client.clientName ?? oauthReq.clientId), {
-      headers: { "content-type": "text/html; charset=utf-8" },
+  if (mode.kind === "access") {
+    const jwt = readAccessJwt(request);
+    if (!jwt) {
+      return errorResponse(
+        401,
+        "access jwt missing",
+        "this endpoint must be fronted by Cloudflare Access; Cf-Access-Jwt-Assertion header was not present",
+      );
+    }
+    const identity = await verifyAccessJwt(jwt, mode);
+    if (!identity) {
+      return errorResponse(401, "access jwt invalid", "failed to verify signature, issuer, or audience");
+    }
+    if (!isAllowed(mode, identity)) {
+      return errorResponse(
+        403,
+        "not authorized",
+        `${identity.email ?? identity.sub} is not in ACCESS_ALLOWED_EMAILS`,
+      );
+    }
+    const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+      request: oauthReq,
+      userId: identity.sub,
+      metadata: { idp: "access", email: identity.email ?? null },
+      scope: oauthReq.scope,
+      props: {
+        sub: identity.sub,
+        email: identity.email ?? null,
+        idp: "access",
+      },
     });
+    return Response.redirect(redirectTo, 302);
   }
 
-  // POST: validate submitted API token
-  const form = await request.formData();
-  const token = (form.get("api_token") as string) ?? "";
-  const expected = env.API_TOKEN ?? "";
+  // OIDC mode: redirect to upstream IdP with PKCE + state + nonce.
+  const discovery = await fetchDiscovery(mode.issuer, env);
+  const { verifier, challenge } = await createPkce();
+  const state = randomState();
+  const nonce = randomState();
+  const redirectUri = callbackUrl(request);
+  await savePendingAuth(env, state, {
+    oauthReq,
+    pkceVerifier: verifier,
+    nonce,
+    redirectUri,
+    issuer: mode.issuer,
+  });
+  const upstream = buildUpstreamAuthorizeUrl(discovery, mode, {
+    state,
+    pkceChallenge: challenge,
+    nonce,
+    redirectUri,
+  });
+  return Response.redirect(upstream, 302);
+}
 
-  if (!token || !expected || !timingSafeEqual(token, expected)) {
-    return new Response(
-      renderPage(client.clientName ?? oauthReq.clientId, "Invalid API token"),
-      { status: 401, headers: { "content-type": "text/html; charset=utf-8" } },
+// ---------------------------------------------------------------------------
+// GET /oauth/callback
+//
+// Upstream IdP redirects the browser here after the user signs in. We look
+// up the pending AuthRequest by `state`, exchange the code for tokens,
+// verify the ID token, check the allowlist, and finally complete the
+// downstream OAuth authorization so the MCP client gets its code.
+// ---------------------------------------------------------------------------
+export async function handleOauthCallback(
+  request: Request,
+  env: AuthEnv,
+): Promise<Response> {
+  const mode = selectIdpMode(env);
+  if (mode.kind !== "oidc") {
+    return errorResponse(
+      404,
+      "callback not available",
+      "OIDC mode is not configured; /oauth/callback is only used by the OIDC flow",
+    );
+  }
+
+  const url = new URL(request.url);
+  const error = url.searchParams.get("error");
+  if (error) {
+    const desc = url.searchParams.get("error_description") ?? "";
+    return errorResponse(400, `upstream error: ${error}`, desc);
+  }
+  const code = url.searchParams.get("code");
+  const state = url.searchParams.get("state");
+  if (!code || !state) {
+    return errorResponse(
+      400,
+      "invalid callback",
+      "missing code or state parameter",
+    );
+  }
+
+  const pending = await consumePendingAuth(env, state);
+  if (!pending) {
+    return errorResponse(
+      400,
+      "unknown state",
+      "authorization state expired or was already used",
+    );
+  }
+  // Paranoia: if the operator changed OIDC_ISSUER between /authorize and
+  // /oauth/callback, reject rather than exchanging a code at a new issuer.
+  if (pending.issuer !== mode.issuer) {
+    return errorResponse(
+      400,
+      "issuer changed",
+      "OIDC_ISSUER was modified mid-flow; start over",
+    );
+  }
+
+  const discovery = await fetchDiscovery(mode.issuer, env);
+  let tokens;
+  try {
+    tokens = await exchangeCode(discovery, mode, {
+      code,
+      pkceVerifier: pending.pkceVerifier,
+      redirectUri: pending.redirectUri,
+    });
+  } catch (err) {
+    return errorResponse(
+      502,
+      "upstream token exchange failed",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
+  if (!tokens.id_token) {
+    return errorResponse(
+      502,
+      "upstream missing id_token",
+      "token response did not include an id_token; is `openid` in OIDC_SCOPES?",
+    );
+  }
+
+  const identity = await verifyIdToken(
+    tokens.id_token,
+    discovery,
+    mode,
+    pending.nonce,
+  );
+  if (!identity) {
+    return errorResponse(
+      401,
+      "id token invalid",
+      "failed signature, issuer, audience, or nonce check",
+    );
+  }
+  if (!isAllowed(mode, identity)) {
+    return errorResponse(
+      403,
+      "not authorized",
+      `${identity.email ?? identity.sub} is not in OIDC_ALLOWED_SUBS`,
     );
   }
 
   const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
-    request: oauthReq,
-    userId: "owner",
-    metadata: { label: "mcp" },
-    scope: oauthReq.scope,
-    props: { role: "owner" },
+    request: pending.oauthReq,
+    userId: identity.sub,
+    metadata: { idp: "oidc", issuer: mode.issuer, email: identity.email ?? null },
+    scope: pending.oauthReq.scope,
+    props: {
+      sub: identity.sub,
+      email: identity.email ?? null,
+      idp: "oidc",
+      issuer: mode.issuer,
+    },
   });
-
   return Response.redirect(redirectTo, 302);
 }
 
-function renderPage(clientName: string, error?: string): string {
-  return `<!DOCTYPE html>
-<html lang="ja">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Authorize - Open Shortlink</title>
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{font-family:system-ui,-apple-system,sans-serif;background:#f5f5f5;display:flex;justify-content:center;align-items:center;min-height:100vh;padding:1rem}
-.card{background:#fff;border-radius:12px;box-shadow:0 2px 8px rgba(0,0,0,.1);max-width:400px;width:100%;padding:2rem}
-h1{font-size:1.25rem;margin-bottom:.5rem}
-p{color:#666;font-size:.875rem;margin-bottom:1.5rem}
-.client{font-weight:600;color:#333}
-label{display:block;font-size:.875rem;font-weight:500;margin-bottom:.5rem}
-input[type=password]{width:100%;padding:.625rem;border:1px solid #ddd;border-radius:6px;font-size:.875rem;margin-bottom:1rem}
-input[type=password]:focus{outline:none;border-color:#2563eb;box-shadow:0 0 0 2px rgba(37,99,235,.2)}
-button{width:100%;padding:.625rem;background:#2563eb;color:#fff;border:none;border-radius:6px;font-size:.875rem;font-weight:500;cursor:pointer}
-button:hover{background:#1d4ed8}
-.error{background:#fef2f2;color:#dc2626;padding:.75rem;border-radius:6px;font-size:.875rem;margin-bottom:1rem}
-</style>
-</head>
-<body>
-<div class="card">
-<h1>Authorize</h1>
-<p><span class="client">${escapeHtml(clientName)}</span> wants to access your Open Shortlink MCP server.</p>
-${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}
-<form method="POST">
-<label for="api_token">API Token</label>
-<input type="password" id="api_token" name="api_token" required autocomplete="off" placeholder="Enter your API token">
-<button type="submit">Authorize</button>
-</form>
-</div>
-</body>
-</html>`;
-}
-
-function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+function errorResponse(
+  status: number,
+  error: string,
+  description: string,
+): Response {
+  const body = {
+    error,
+    description,
+    docs: "https://tied-inc.github.io/open-shortlink/guide/security",
+  };
+  return new Response(JSON.stringify(body, null, 2), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
 }
