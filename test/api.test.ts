@@ -354,6 +354,46 @@ describe("DELETE /api/links/:slug", () => {
   });
 });
 
+describe("DELETE /api/cache/:slug", () => {
+  test("returns purged: false in non-Worker environment", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await req(
+      app,
+      "/api/cache/abc",
+      { method: "DELETE", headers: authHeader() },
+      env,
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { purged: boolean };
+    expect(body.purged).toBe(false);
+  });
+
+  test("rejects invalid slug with 400", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await req(
+      app,
+      "/api/cache/" + encodeURIComponent("bad slug"),
+      { method: "DELETE", headers: authHeader() },
+      env,
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("requires authentication", async () => {
+    const app = buildApp();
+    const env = createTestEnv();
+    const res = await req(
+      app,
+      "/api/cache/abc",
+      { method: "DELETE" },
+      env,
+    );
+    expect(res.status).toBe(401);
+  });
+});
+
 describe("GET /api/links (list)", () => {
   test("lists empty when no links", async () => {
     const app = buildApp();

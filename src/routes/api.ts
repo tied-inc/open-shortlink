@@ -131,6 +131,22 @@ apiRoute.delete("/links/:slug", async (c) => {
   }
 });
 
+// Cache
+
+apiRoute.delete("/cache/:slug", async (c) => {
+  const slug = c.req.param("slug");
+  if (!isValidSlug(slug)) {
+    return c.json({ error: "invalid slug" }, 400);
+  }
+  const baseUrl = getBaseUrl(c);
+  const cache = (globalThis as { caches?: CacheStorage }).caches?.default;
+  if (cache) {
+    const deleted = await cache.delete(`${baseUrl}/${slug}`);
+    return c.json({ purged: deleted });
+  }
+  return c.json({ purged: false });
+});
+
 // Analytics
 
 const PERIODS: readonly Period[] = ["1d", "7d", "30d", "90d"];
