@@ -111,6 +111,8 @@ bun run deploy
 - **KV Namespace** (`SHORTLINKS`) — slug → URL のマッピング保存。
   Wrangler 4.45+ が `[[kv_namespaces]]` に `id` が無いことを検知して
   `open-shortlink-shortlinks` のような名前で新規作成する
+- **KV Namespace** (`OAUTH_KV`) — OAuth トークン・クライアント登録の保存。
+  `SHORTLINKS` と同様に自動作成される
 - **Analytics Engine** (`ANALYTICS`) — クリックデータの記録。
   **dataset は事前作成が必要**（上記「事前準備」を参照）。Cloudflare の
   仕様で、アカウントで Analytics Engine を初めて使う場合は最初の dataset
@@ -130,18 +132,14 @@ bun test
 
 ## MCP サーバーの接続
 
-デプロイ完了後、Claude Desktop 等の MCP クライアントに以下を設定:
+デプロイ完了後、Claude Desktop 等の MCP クライアントに接続する。
+詳細は [MCP サーバー](../mcp) のクライアント設定セクションを参照。
 
-```json
-{
-  "mcpServers": {
-    "shortlink": {
-      "type": "url",
-      "url": "https://your-shortlink.workers.dev/mcp",
-      "headers": {
-        "Authorization": "Bearer <API_TOKEN>"
-      }
-    }
-  }
-}
-```
+### Claude Desktop
+
+1. Claude Desktop → **設定** → **カスタムコネクタを追加**
+2. **名前**: `Open Shortlink`、**リモート MCP サーバー URL**: `https://<your-worker>.workers.dev/mcp`
+3. OAuth フィールドは空欄のまま **追加** をクリック
+4. ブラウザで認可ページが開くので、デプロイ時に設定した **API Token** を入力して **Authorize**
+
+詳しくは [MCP サーバー → Claude Desktop](../mcp#claude-desktop) を参照。

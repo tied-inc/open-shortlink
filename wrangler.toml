@@ -12,6 +12,11 @@ enabled = true
 [[kv_namespaces]]
 binding = "SHORTLINKS"
 
+# OAuth token storage for Claude Desktop and other OAuth MCP clients.
+# Auto-provisioned on first deploy (same as SHORTLINKS above).
+[[kv_namespaces]]
+binding = "OAUTH_KV"
+
 [[analytics_engine_datasets]]
 binding = "ANALYTICS"
 dataset = "open_shortlink_clicks"

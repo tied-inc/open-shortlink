@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import app from "../src/index";
+import app from "../src/app";
 import type { Bindings } from "../src/bindings";
 import { LinkStore } from "../src/storage/kv";
 import { authHeader, createTestCtx, createTestEnv } from "./helpers/test-app";

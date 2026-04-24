@@ -18,6 +18,7 @@ export function createTestEnv(opts: TestEnvOptions = {}): Bindings {
   const env: Bindings = {
     SHORTLINKS: createMockKV(),
     ANALYTICS: createMockAnalytics(),
+    OAUTH_KV: createMockKV(),
     API_TOKEN: opts.apiToken ?? TEST_TOKEN,
   };
   if (opts.analyticsConfigured) {
