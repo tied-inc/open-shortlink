@@ -39,11 +39,11 @@ const SERVER_INFO = { name: "open-shortlink", version: "0.1.0" };
 // payload into JSON.parse.
 const MAX_BODY_BYTES = 256 * 1024;
 
-export const mcpRoute = new Hono<{ Bindings: Bindings }>();
+// Raw MCP handlers without auth — used by OAuthProvider's apiHandler where
+// the OAuth layer has already validated the token.
+export const mcpHandlers = new Hono<{ Bindings: Bindings }>();
 
-mcpRoute.use("*", bearerAuth);
-
-mcpRoute.post("/", async (c) => {
+mcpHandlers.post("/", async (c) => {
   // Spec: client MUST send Accept listing both application/json and
   // text/event-stream. Be lenient for curl/other tools by allowing */* or
   // a missing header, but reject a header that excludes both explicitly.
@@ -97,7 +97,7 @@ mcpRoute.post("/", async (c) => {
 // Spec: GET is used by clients to open an SSE stream. We don't stream, so
 // clients requesting text/event-stream MUST get 405. Plain GET (curl, health
 // checks) still gets a JSON server info summary.
-mcpRoute.get("/", (c) => {
+mcpHandlers.get("/", (c) => {
   const accept = c.req.header("accept") ?? "";
   if (accept.includes("text/event-stream")) {
     return c.body(null, 405);
@@ -111,9 +111,15 @@ mcpRoute.get("/", (c) => {
 
 // Spec: DELETE is used for explicit session termination. We're stateless,
 // so respond 405 Method Not Allowed.
-mcpRoute.delete("/", (c) => {
+mcpHandlers.delete("/", (c) => {
   return c.body(null, 405);
 });
+
+// Bearer-auth-wrapped version for the default handler (backward compat with
+// CLI clients that hit /mcp directly with Authorization: Bearer <API_TOKEN>).
+export const mcpRoute = new Hono<{ Bindings: Bindings }>();
+mcpRoute.use("*", bearerAuth);
+mcpRoute.route("/", mcpHandlers);
 
 function acceptsJsonResponse(accept: string): boolean {
   if (!accept) return true;

@@ -1,6 +1,7 @@
 export interface Bindings {
   SHORTLINKS: KVNamespace;
   ANALYTICS: AnalyticsEngineDataset;
+  OAUTH_KV: KVNamespace;
   API_TOKEN: string;
   CF_ACCOUNT_ID?: string;
   CF_ANALYTICS_TOKEN?: string;

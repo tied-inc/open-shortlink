@@ -6,6 +6,9 @@
 # The Deploy to Cloudflare button prompts for this value during setup.
 API_TOKEN=replace-with-output-of-openssl-rand-base64-32
 
+# OAuth KV namespace (OAUTH_KV) is auto-provisioned by Wrangler.
+# No manual setup needed for local dev — wrangler dev creates it automatically.
+
 # Optional: Analytics Engine SQL query credentials.
 # CF_ACCOUNT_ID=your-cloudflare-account-id
 # CF_ANALYTICS_TOKEN=your-cloudflare-api-token-with-account-analytics-read
