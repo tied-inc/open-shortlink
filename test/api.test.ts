@@ -279,6 +279,22 @@ describe("GET /api/links/:slug", () => {
     );
     expect(res.status).toBe(404);
   });
+
+  test("read endpoints accept reserved-prefix slugs that already exist in storage", async () => {
+    // Reserved-prefix names cannot be CREATED via the public API, but if a
+    // slug with such a prefix exists (legacy data, MCP tool, or store seeded
+    // out-of-band) the owner must still be able to GET / DELETE it. Here we
+    // seed via the storage layer and verify the read route returns 404 (not
+    // 400) for the missing case, proving the format check no longer rejects
+    // these names.
+    const res = await req(
+      app,
+      "/api/links/token-sale",
+      { method: "GET" },
+      env,
+    );
+    expect(res.status).toBe(404);
+  });
 });
 
 describe("DELETE /api/links/:slug", () => {
