@@ -1,10 +1,17 @@
 # API リファレンス
 
-すべての API エンドポイントは Bearer token 認証が必要（リダイレクトを除く）。
+すべての API エンドポイントは OAuth 2.1 アクセストークンが必要（リダイレクトを除く）。
 
 ```
-Authorization: Bearer <API_TOKEN>
+Authorization: Bearer <OAUTH_ACCESS_TOKEN>
 ```
+
+アクセストークンは OAuth 2.1 フロー（`/authorize` → IdP サインイン → `/token`）
+で取得します。Claude Desktop や Claude Code から MCP 接続すると
+自動的に取得・更新されるため、MCP 経由であれば意識する必要はありません。
+curl 等で直接叩く場合は、まずブラウザで Claude Desktop 等を通して
+認可を完了し、発行されたアクセストークンを使ってください。詳しくは
+[セキュリティポリシー](./guide/security) を参照。
 
 ## リダイレクト
 

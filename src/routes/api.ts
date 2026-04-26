@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Bindings } from "../bindings";
-import { bearerAuth } from "../middleware/auth";
 import { LinkStore } from "../storage/kv";
 import {
   LinkConflictError,
@@ -10,11 +9,12 @@ import {
   LinkValidationError,
 } from "../services/links";
 import { AnalyticsQuery, type Period, type Interval } from "../analytics/query";
-import { isValidSlug } from "../lib/slug";
+import { isValidSlugFormat } from "../lib/slug";
 
+// Auth is enforced by the OAuthProvider at the /api and /mcp apiRoute
+// boundary in src/index.ts. Requests that reach this handler already carry a
+// validated access token, so no bearer middleware is needed here.
 export const apiRoute = new Hono<{ Bindings: Bindings }>();
-
-apiRoute.use("*", bearerAuth);
 
 // Upper bound on JSON payloads. `url` is capped to 2048 chars by the
 // validator; any body substantially larger than that is either malformed or
@@ -94,7 +94,7 @@ apiRoute.get("/links", async (c) => {
 
 apiRoute.get("/links/:slug", async (c) => {
   const slug = c.req.param("slug");
-  if (!isValidSlug(slug)) {
+  if (!isValidSlugFormat(slug)) {
     return c.json({ error: "invalid slug" }, 400);
   }
   const service = getService(c.env, getBaseUrl(c));
@@ -111,7 +111,7 @@ apiRoute.get("/links/:slug", async (c) => {
 
 apiRoute.delete("/links/:slug", async (c) => {
   const slug = c.req.param("slug");
-  if (!isValidSlug(slug)) {
+  if (!isValidSlugFormat(slug)) {
     return c.json({ error: "invalid slug" }, 400);
   }
   const baseUrl = getBaseUrl(c);
@@ -212,7 +212,7 @@ apiRoute.get("/analytics/:slug/timeseries", async (c) => {
   const a = requireAnalytics(c.env);
   if (a instanceof Response) return a;
   const slug = c.req.param("slug");
-  if (!isValidSlug(slug)) {
+  if (!isValidSlugFormat(slug)) {
     return c.json({ error: "invalid slug" }, 400);
   }
   const period = parsePeriod(c.req.query("period"));
@@ -225,7 +225,7 @@ apiRoute.get("/analytics/:slug", async (c) => {
   const a = requireAnalytics(c.env);
   if (a instanceof Response) return a;
   const slug = c.req.param("slug");
-  if (!isValidSlug(slug)) {
+  if (!isValidSlugFormat(slug)) {
     return c.json({ error: "invalid slug" }, 400);
   }
   const period = parsePeriod(c.req.query("period"));

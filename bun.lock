@@ -8,6 +8,7 @@
         "@cloudflare/workers-oauth-provider": "^0.4.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "hono": "^4.12.14",
+        "jose": "^6.2.2",
         "nanoid": "^5.1.9",
         "zod": "^4.3.6",
       },

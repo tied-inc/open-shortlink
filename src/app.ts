@@ -1,59 +1,26 @@
 import { Hono } from "hono";
 import type { Bindings } from "./bindings";
-import { handleAuthorize } from "./oauth/authorize";
-import { apiRoute } from "./routes/api";
+import { handleAuthorize, handleOauthCallback } from "./oauth/authorize";
 import { redirectRoute } from "./routes/redirect";
-import { cors } from "./middleware/cors";
+import { hostSplit } from "./middleware/host-split";
 import { requestLogger } from "./middleware/logger";
-import { rateLimit } from "./middleware/rate-limit";
 import { securityHeaders } from "./middleware/security-headers";
 
 // ---------------------------------------------------------------------------
 // The core Hono application. Used as the OAuthProvider's defaultHandler in
 // src/index.ts and imported directly by tests (which cannot load the
 // cloudflare:workers module that OAuthProvider depends on).
+//
+// This handler serves: redirects (/:slug), conventional paths (/robots.txt,
+// /favicon.ico), health/info (/, /health), and OAuth browser endpoints
+// (/authorize, /oauth/callback). The /api/* and /mcp/* surfaces live behind
+// OAuthProvider's apiHandler in index.ts and never reach here.
 // ---------------------------------------------------------------------------
 const app = new Hono<{ Bindings: Bindings }>();
 
 app.use("*", requestLogger);
 app.use("*", securityHeaders);
-app.use("/api/*", cors);
-
-// Per-IP rate limits. Redirect path gets a much higher cap since it's the hot path.
-app.use("/api/*", rateLimit({ windowMs: 60_000, max: 120 }));
-
-// Host split: when REDIRECT_HOST / API_HOST are configured, each host only
-// serves its intended surface. This prevents the API from being reachable on
-// the short-link host (and vice versa) when routes are bound to multiple
-// subdomains on the same worker.
-function isApiOrMcpPath(path: string): boolean {
-  return (
-    path === "/api" ||
-    path.startsWith("/api/") ||
-    path === "/mcp" ||
-    path.startsWith("/mcp/")
-  );
-}
-
-app.use("*", async (c, next) => {
-  const { REDIRECT_HOST, API_HOST } = c.env;
-  if (!REDIRECT_HOST && !API_HOST) return next();
-  const host = new URL(c.req.url).host;
-  const path = c.req.path;
-  if (REDIRECT_HOST && host === REDIRECT_HOST && isApiOrMcpPath(path)) {
-    return c.json({ error: "not found" }, 404);
-  }
-  if (
-    API_HOST &&
-    host === API_HOST &&
-    !isApiOrMcpPath(path) &&
-    path !== "/" &&
-    path !== "/health"
-  ) {
-    return c.json({ error: "not found" }, 404);
-  }
-  return next();
-});
+app.use("*", hostSplit);
 
 app.get("/", (c) =>
   c.json({
@@ -73,7 +40,8 @@ app.get("/robots.txt", () =>
 );
 app.get("/favicon.ico", () => new Response(null, { status: 204 }));
 
-// OAuth authorize page — rendered in the browser during the OAuth flow.
+// OAuth authorize entry point. Delegates to the configured upstream IdP
+// (Cloudflare Access or generic OIDC). See src/oauth/authorize.ts.
 app.get("/authorize", (c) =>
   handleAuthorize(c.req.raw, c.env as Parameters<typeof handleAuthorize>[1]),
 );
@@ -81,7 +49,15 @@ app.post("/authorize", (c) =>
   handleAuthorize(c.req.raw, c.env as Parameters<typeof handleAuthorize>[1]),
 );
 
-app.route("/api", apiRoute);
+// OIDC callback — only reached when OIDC_ISSUER is configured. The upstream
+// IdP redirects the browser here with ?code=...&state=... after sign-in.
+app.get("/oauth/callback", (c) =>
+  handleOauthCallback(
+    c.req.raw,
+    c.env as Parameters<typeof handleOauthCallback>[1],
+  ),
+);
+
 app.route("/", redirectRoute);
 
 app.notFound((c) => c.json({ error: "not found" }, 404));

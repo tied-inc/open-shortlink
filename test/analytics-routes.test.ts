@@ -1,9 +1,13 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { Bindings } from "../src/bindings";
-import { mcpRoute } from "../src/mcp/server";
+import { mcpHandlers } from "../src/mcp/server";
 import { apiRoute } from "../src/routes/api";
-import { authHeader, createTestCtx, createTestEnv } from "./helpers/test-app";
+import { createTestCtx, createTestEnv } from "./helpers/test-app";
+
+// Auth is enforced by OAuthProvider at the /api and /mcp apiRoute boundary
+// in src/index.ts. Tests exercise handlers directly and skip that layer.
+const JSON_HEADERS = { "content-type": "application/json" };
 
 const originalFetch = globalThis.fetch;
 let queue: unknown[][] = [];
@@ -27,7 +31,7 @@ function buildApiApp() {
 
 function buildMcpApp() {
   const app = new Hono<{ Bindings: Bindings }>();
-  app.route("/mcp", mcpRoute);
+  app.route("/mcp", mcpHandlers);
   return app;
 }
 
@@ -35,7 +39,7 @@ async function apiGet(path: string, env: Bindings) {
   const app = buildApiApp();
   return app.request(
     `https://test.example${path}`,
-    { method: "GET", headers: authHeader() },
+    { method: "GET" },
     env,
     createTestCtx(),
   );
@@ -47,7 +51,7 @@ async function mcpCall(env: Bindings, name: string, args: unknown) {
     "https://test.example/mcp",
     {
       method: "POST",
-      headers: { ...authHeader(), "content-type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,

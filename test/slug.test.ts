@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { generateSlug, isValidSlug } from "../src/lib/slug";
+import {
+  generateSlug,
+  isValidSlug,
+  isValidSlugFormat,
+} from "../src/lib/slug";
 
 describe("generateSlug", () => {
   test("generates 6-character slug", () => {
@@ -50,8 +54,45 @@ describe("isValidSlug", () => {
     expect(isValidSlug("well-known")).toBe(false);
   });
 
+  test("rejects OAuth-related reserved prefixes", () => {
+    expect(isValidSlug("authorize")).toBe(false);
+    expect(isValidSlug("token")).toBe(false);
+    expect(isValidSlug("register")).toBe(false);
+    expect(isValidSlug("oauth")).toBe(false);
+    expect(isValidSlug("token-sale")).toBe(false);
+    expect(isValidSlug("oauth-demo")).toBe(false);
+  });
+
   test("rejects slugs longer than 64 chars", () => {
     expect(isValidSlug("a".repeat(65))).toBe(false);
     expect(isValidSlug("a".repeat(64))).toBe(true);
+  });
+});
+
+describe("isValidSlugFormat", () => {
+  test("accepts the same character set as isValidSlug", () => {
+    expect(isValidSlugFormat("abc123")).toBe(true);
+    expect(isValidSlugFormat("my-slug")).toBe(true);
+    expect(isValidSlugFormat("my_slug")).toBe(true);
+  });
+
+  test("rejects malformed input", () => {
+    expect(isValidSlugFormat("")).toBe(false);
+    expect(isValidSlugFormat("has space")).toBe(false);
+    expect(isValidSlugFormat("has/slash")).toBe(false);
+    expect(isValidSlugFormat("日本語")).toBe(false);
+    expect(isValidSlugFormat("a".repeat(65))).toBe(false);
+  });
+
+  test("does NOT reject reserved-prefix slugs", () => {
+    // Format check is intentionally permissive. The reserved-prefix guard
+    // only fires at link creation time (LinkService.create); read/delete/
+    // analytics endpoints must remain reachable for any well-formed slug
+    // that may already exist in storage.
+    expect(isValidSlugFormat("api-links")).toBe(true);
+    expect(isValidSlugFormat("token-sale")).toBe(true);
+    expect(isValidSlugFormat("oauth-demo")).toBe(true);
+    expect(isValidSlugFormat("authorize-page")).toBe(true);
+    expect(isValidSlugFormat("register-form")).toBe(true);
   });
 });

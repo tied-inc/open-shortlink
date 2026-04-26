@@ -10,8 +10,8 @@ Open Shortlink は Cloudflare Workers 上で動く URL 短縮サービスで、R
 ## 前提
 
 - 接続先: `${SHORTLINK_MCP_URL}`（例: `https://your-shortlink.workers.dev/mcp`）
-- 認証: `Authorization: Bearer ${SHORTLINK_API_TOKEN}`
-- MCP 接続・認証情報は `.claude-plugin/plugin.json` の `mcpServers.shortlink` に定義済み。環境変数 `SHORTLINK_MCP_URL` と `SHORTLINK_API_TOKEN` を設定して有効化する。
+- 認証: **OAuth 2.1**。初回接続時にブラウザで `/authorize` が開き、Worker 側で構成された IdP（Cloudflare Access か任意の OpenID Connect プロバイダ）でサインインする。Claude Code / Claude Desktop の MCP クライアントがアクセストークンを自動取得・更新するため、クライアント側で静的トークンを保持する必要はない。
+- MCP 接続情報は `.claude-plugin/plugin.json` の `mcpServers.shortlink` に定義済み。環境変数 `SHORTLINK_MCP_URL` を設定すれば有効化される。
 
 ## ツールの使い分け
 
@@ -92,7 +92,7 @@ Open Shortlink は Cloudflare Workers 上で動く URL 短縮サービスで、R
 
 ## やってはいけないこと
 
-- `slug` に `api` や `mcp` から始まる文字列を提案しない（ルーティング衝突で常に失敗する）
+- `slug` に `api`, `mcp`, `authorize`, `token`, `register`, `oauth` から始まる文字列を提案しない（ルーティング衝突で常に失敗する）
 - `expiresIn` を勝手に付けない — ユーザーが期限を望んでいない限り無期限で作る
 - `period` に `"14d"` や `"1m"` など定義外の値を渡さない
-- 認証エラー（401）が出たら再試行せず、ユーザーに `SHORTLINK_API_TOKEN` の設定を確認してもらう
+- 認証エラー（401）が出たら再試行せず、ユーザーに MCP クライアントの再認可（OAuth 再サインイン）を促す。503 が返る場合は Worker 側の IdP 設定（`CF_ACCESS_*` または `OIDC_*`）が不足しているので、運用者に確認してもらう

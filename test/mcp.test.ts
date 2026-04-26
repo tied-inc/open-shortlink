@@ -1,12 +1,17 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
 import type { Bindings } from "../src/bindings";
-import { mcpRoute } from "../src/mcp/server";
-import { authHeader, createTestCtx, createTestEnv } from "./helpers/test-app";
+import { mcpHandlers } from "../src/mcp/server";
+import { createTestCtx, createTestEnv } from "./helpers/test-app";
+
+// Auth is enforced by OAuthProvider at the /mcp apiRoute boundary in
+// src/index.ts. Tests here exercise the Hono handler directly so they
+// bypass that layer — every request is treated as already authenticated.
+const JSON_HEADERS = { "content-type": "application/json" };
 
 function buildApp() {
   const app = new Hono<{ Bindings: Bindings }>();
-  app.route("/mcp", mcpRoute);
+  app.route("/mcp", mcpHandlers);
   return app;
 }
 
@@ -19,7 +24,7 @@ async function rpc(
     "https://test.example/mcp",
     {
       method: "POST",
-      headers: { ...authHeader(), "content-type": "application/json" },
+      headers: JSON_HEADERS,
       body: JSON.stringify(body),
     },
     env,
@@ -28,20 +33,6 @@ async function rpc(
   const data = res.status === 204 ? null : await res.json();
   return { status: res.status, data };
 }
-
-describe("MCP authentication", () => {
-  test("rejects missing token", async () => {
-    const app = buildApp();
-    const env = createTestEnv();
-    const res = await app.request(
-      "https://test.example/mcp",
-      { method: "POST", body: "{}" },
-      env,
-      createTestCtx(),
-    );
-    expect(res.status).toBe(401);
-  });
-});
 
 describe("MCP initialize", () => {
   test("returns server info and capabilities", async () => {
@@ -277,7 +268,7 @@ describe("MCP notifications", () => {
       "https://test.example/mcp",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({
           jsonrpc: "2.0",
           method: "notifications/initialized",
@@ -333,7 +324,7 @@ describe("MCP tools/call edge cases", () => {
       "https://test.example/mcp",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify({ jsonrpc: "2.0", method: "unknown/notif" }),
       },
       env,
@@ -349,7 +340,7 @@ describe("MCP tools/call edge cases", () => {
       "https://test.example/mcp",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: JSON.stringify([
           { jsonrpc: "2.0", method: "notifications/initialized" },
           { jsonrpc: "2.0", method: "notifications/cancelled" },
@@ -370,7 +361,7 @@ describe("MCP JSON-RPC edge cases", () => {
       "https://test.example/mcp",
       {
         method: "POST",
-        headers: { ...authHeader(), "content-type": "application/json" },
+        headers: JSON_HEADERS,
         body: "{ invalid",
       },
       env,
@@ -410,7 +401,7 @@ describe("MCP GET /mcp", () => {
     const env = createTestEnv();
     const res = await app.request(
       "https://test.example/mcp",
-      { method: "GET", headers: authHeader() },
+      { method: "GET" },
       env,
       createTestCtx(),
     );
@@ -426,7 +417,7 @@ describe("MCP GET /mcp", () => {
       "https://test.example/mcp",
       {
         method: "GET",
-        headers: { ...authHeader(), accept: "text/event-stream" },
+        headers: { accept: "text/event-stream" },
       },
       env,
       createTestCtx(),
@@ -441,7 +432,7 @@ describe("MCP DELETE /mcp", () => {
     const env = createTestEnv();
     const res = await app.request(
       "https://test.example/mcp",
-      { method: "DELETE", headers: authHeader() },
+      { method: "DELETE" },
       env,
       createTestCtx(),
     );
@@ -458,7 +449,6 @@ describe("MCP streamable-http compat", () => {
       {
         method: "POST",
         headers: {
-          ...authHeader(),
           "content-type": "application/json",
           accept: "application/json, text/event-stream",
         },
@@ -480,7 +470,6 @@ describe("MCP streamable-http compat", () => {
       {
         method: "POST",
         headers: {
-          ...authHeader(),
           "content-type": "application/json",
           accept: "text/html",
         },
@@ -640,7 +629,6 @@ describe("MCP hardening", () => {
       {
         method: "POST",
         headers: {
-          ...authHeader(),
           "content-type": "application/json",
           "content-length": String(big.length),
         },

@@ -33,12 +33,37 @@
 
 ## 環境変数
 
+Worker は **OAuth 2.1** で保護され、ユーザー認証は外部 IdP に委任する。
+モード A（Cloudflare Access）とモード B（汎用 OIDC）のいずれか一方を設定する
+（両方設定すると `/authorize` は 503）。
+
+### モード A: Cloudflare Access
+
+| 変数名 | 必須 | 説明 |
+|---|---|---|
+| `CF_ACCESS_TEAM_DOMAIN` | ◯ | 例: `acme.cloudflareaccess.com` |
+| `CF_ACCESS_AUD` | ◯ | Access アプリの AUD タグ |
+| `ACCESS_ALLOWED_EMAILS` | ◯ | 許可 email のカンマ区切り（空なら 503） |
+
+### モード B: 汎用 OIDC
+
+| 変数名 | 必須 | 説明 |
+|---|---|---|
+| `OIDC_ISSUER` | ◯ | 上流 OpenID Connect プロバイダの issuer URL |
+| `OIDC_CLIENT_ID` | ◯ | 上流で発行された client_id |
+| `OIDC_CLIENT_SECRET` | ◯ | 上流で発行された client secret（Secret として保存） |
+| `OIDC_ALLOWED_SUBS` | ◯ | サインインを許可する email / sub のカンマ区切り（空なら 503） |
+| `OIDC_SCOPES` | 任意 | 上流に要求するスコープ（既定: `openid email profile`） |
+
+### その他
+
 | 変数名 | 必須 | 説明 | 設定方法 |
 |---|---|---|---|
-| `API_TOKEN` | ◯ | API / MCP 認証用 Bearer token。24文字以上、かつ `dev-token-change-me` などの既知プレースホルダは拒否。 | `wrangler secret put API_TOKEN` |
 | `CF_ACCOUNT_ID` | 分析API使用時 | Cloudflare アカウント ID | `wrangler secret put CF_ACCOUNT_ID` |
 | `CF_ANALYTICS_TOKEN` | 分析API使用時 | Analytics Engine 読み取り権限付き API トークン | `wrangler secret put CF_ANALYTICS_TOKEN` |
 | `CORS_ALLOW_ORIGIN` | 任意 | カンマ区切りの CORS allowlist。未設定または `*` で全許可。 | `wrangler secret put CORS_ALLOW_ORIGIN` |
+| `PUBLIC_BASE_URL` | 任意 | `shortUrl` に使う正本オリジン | `wrangler secret put PUBLIC_BASE_URL` |
+| `REDIRECT_HOST` / `API_HOST` | 任意 | ホスト分割を強制する | `[vars]` or Secret |
 
 ## ストレージ設計
 
@@ -74,7 +99,7 @@ Metadata: { createdAt: number, expiresAt?: number, url?: string }
 |---|---|---|
 | GET | `/:slug` | 302 リダイレクト。KV から URL を取得し、Analytics Engine にクリックデータを非同期記録 |
 
-### リンク管理 API（Bearer token 認証）
+### リンク管理 API（OAuth アクセストークン認証）
 
 | メソッド | パス | 説明 |
 |---|---|---|
@@ -83,7 +108,7 @@ Metadata: { createdAt: number, expiresAt?: number, url?: string }
 | GET | `/api/links/:slug` | リンク詳細 |
 | DELETE | `/api/links/:slug` | リンク削除 |
 
-### 分析 API（Bearer token 認証）
+### 分析 API（OAuth アクセストークン認証）
 
 | メソッド | パス | 説明 |
 |---|---|---|
@@ -253,17 +278,34 @@ meta-externalagent
 公式ポリシー（運用者必読）は [docs/guide/security.md](./docs/guide/security.md)
 に集約。本 SPEC では仕様として守るべき振る舞いのみを規定する。
 
-- **第一線（必須）**: Worker 内の `API_TOKEN` による Bearer 認証
-- **二線目（推奨）**: Cloudflare Access を `API_HOST` に適用（MCP クライアント
-  は Service Token 併用）。Worker 実装からは Access の有無を区別せず、
-  `Authorization: Bearer` は常に要求する
+- **第一線（必須）**: OAuth 2.1（PKCE S256 + 動的クライアント登録）。
+  `@cloudflare/workers-oauth-provider` が `/api/*` と `/mcp` のアクセストークン
+  検証を担う
+- **ユーザー認証は外部 IdP に委任**。運用者は以下のどちらか一方を設定する:
+  - モード A: Cloudflare Access — `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` /
+    `ACCESS_ALLOWED_EMAILS` を設定し、Access が付与する `Cf-Access-Jwt-Assertion`
+    を JWKS（`https://<team>/cdn-cgi/access/certs`）で検証する
+  - モード B: 汎用 OIDC — `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` /
+    `OIDC_ALLOWED_SUBS` を設定し、`${issuer}/.well-known/openid-configuration`
+    から discovery を取得して上流 IdP に OAuth 2.1 + PKCE で委任する
 - リダイレクトエンドポイント (`GET /:slug`): 認証なし
-- API (`/api/*`) / MCP (`/mcp`): `Authorization: Bearer <API_TOKEN>` ヘッダー必須
-- 認証失敗時: 401 Unauthorized（`WWW-Authenticate: Bearer realm="open-shortlink"` 付与）
-- 比較は定数時間比較で実施（タイミング攻撃耐性）
-- `API_TOKEN` が未設定または弱い（24文字未満・既知プレースホルダ）場合、
-  サーバーは 503 を返して**処理を一切進めない**（fail-closed）。これにより
-  「トークン未設定で API が誰でも叩ける」状態が発生しないことを保証する
+- `/api/*` と `/mcp`: 有効な OAuth アクセストークン必須。OAuthProvider が
+  無効時に 401 Unauthorized を返す
+- `/authorize` の挙動:
+  - IdP 未設定、両モード同時設定、allowlist 空のいずれかの場合は **503**
+  - Access モード: `Cf-Access-Jwt-Assertion` を JWKS で検証し、`iss` / `aud` /
+    `exp` とメール allowlist を満たせば `completeAuthorization` を呼び、
+    下流クライアントへ 302 リダイレクト
+  - OIDC モード: PKCE (S256) / state / nonce を生成し、上流 IdP の
+    `authorization_endpoint` へ 302 リダイレクト
+- `/oauth/callback`（OIDC モード専用）:
+  - `state` を OAUTH_KV から引き当てて使い捨て（TTL 10 分）
+  - 上流 `/token` に `code` + PKCE `code_verifier` を送って ID token 取得
+  - ID token を JWKS で検証し、`iss` / `aud` / `nonce` / `exp` と allowlist を
+    照合してから `completeAuthorization`
+- allowlist 照合は **完全一致・case-insensitive**。空白は両端 trim
+- 上流 issuer が `/authorize` と `/oauth/callback` の間で変わっていたら 400
+- アクセストークン寿命: 既定 1 時間 / リフレッシュトークン: 30 日
 
 ## セキュリティ対策
 

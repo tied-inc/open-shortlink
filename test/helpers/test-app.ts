@@ -2,16 +2,27 @@ import type { Bindings } from "../../src/bindings";
 import { createMockAnalytics } from "./mock-analytics";
 import { createMockKV } from "./mock-kv";
 
-// Strong enough to clear the auth middleware's minimum-length / blocklist
-// check (>= 24 chars, not a known placeholder).
-export const TEST_TOKEN = "test-secret-token-abcdef-123456";
-
 export interface TestEnvOptions {
-  apiToken?: string;
   analyticsConfigured?: boolean;
   publicBaseUrl?: string;
   redirectHost?: string;
   apiHost?: string;
+  // Optional IdP configuration. Most tests exercise the /api and /mcp
+  // handlers directly (bypassing OAuthProvider), so they don't need an IdP
+  // configured. Tests that cover /authorize supply their own values.
+  idp?: Partial<
+    Pick<
+      Bindings,
+      | "CF_ACCESS_TEAM_DOMAIN"
+      | "CF_ACCESS_AUD"
+      | "ACCESS_ALLOWED_EMAILS"
+      | "OIDC_ISSUER"
+      | "OIDC_CLIENT_ID"
+      | "OIDC_CLIENT_SECRET"
+      | "OIDC_SCOPES"
+      | "OIDC_ALLOWED_SUBS"
+    >
+  >;
 }
 
 export function createTestEnv(opts: TestEnvOptions = {}): Bindings {
@@ -19,15 +30,15 @@ export function createTestEnv(opts: TestEnvOptions = {}): Bindings {
     SHORTLINKS: createMockKV(),
     ANALYTICS: createMockAnalytics(),
     OAUTH_KV: createMockKV(),
-    API_TOKEN: opts.apiToken ?? TEST_TOKEN,
   };
   if (opts.analyticsConfigured) {
     env.CF_ACCOUNT_ID = "test-account";
-    env.CF_ANALYTICS_TOKEN = TEST_TOKEN;
+    env.CF_ANALYTICS_TOKEN = "test-analytics-token-abcdef";
   }
   if (opts.publicBaseUrl) env.PUBLIC_BASE_URL = opts.publicBaseUrl;
   if (opts.redirectHost) env.REDIRECT_HOST = opts.redirectHost;
   if (opts.apiHost) env.API_HOST = opts.apiHost;
+  if (opts.idp) Object.assign(env, opts.idp);
   return env;
 }
 
@@ -37,8 +48,4 @@ export function createTestCtx(): ExecutionContext {
     passThroughOnException: () => {},
     props: {},
   } as unknown as ExecutionContext;
-}
-
-export function authHeader(token = TEST_TOKEN): { Authorization: string } {
-  return { Authorization: `Bearer ${token}` };
 }
