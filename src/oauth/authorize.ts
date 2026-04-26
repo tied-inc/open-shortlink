@@ -121,6 +121,13 @@ export async function handleOauthCallback(
   env: AuthEnv,
 ): Promise<Response> {
   const mode = selectIdpMode(env);
+  // Misconfiguration must surface as 503 (not 404) so the operator sees the
+  // same fail-closed signal regardless of which endpoint was hit. A direct
+  // GET /oauth/callback while two IdPs are simultaneously configured is a
+  // configuration error, not a "this route does not exist" condition.
+  if (mode.kind === "misconfigured") {
+    return errorResponse(503, "server misconfigured", mode.reason);
+  }
   if (mode.kind !== "oidc") {
     return errorResponse(
       404,

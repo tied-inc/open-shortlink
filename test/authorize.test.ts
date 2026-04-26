@@ -73,7 +73,7 @@ describe("/authorize fail-closed", () => {
 });
 
 describe("/oauth/callback", () => {
-  test("returns 404 when OIDC is not configured", async () => {
+  test("returns 404 when OIDC is not configured (Access mode)", async () => {
     const env = buildEnv({
       idp: {
         CF_ACCESS_TEAM_DOMAIN: "acme.cloudflareaccess.com",
@@ -88,6 +88,46 @@ describe("/oauth/callback", () => {
     expect(res.status).toBe(404);
     const body = (await res.json()) as { description: string };
     expect(body.description).toContain("OIDC mode is not configured");
+  });
+
+  test("returns 503 (not 404) when both IdPs are simultaneously configured", async () => {
+    // The previous implementation collapsed misconfigured into the
+    // "OIDC not configured" branch and returned a misleading 404. The
+    // operator must see the same fail-closed 503 they'd get from
+    // /authorize, with the actual reason in the body.
+    const env = buildEnv({
+      idp: {
+        CF_ACCESS_TEAM_DOMAIN: "acme.cloudflareaccess.com",
+        CF_ACCESS_AUD: "aud",
+        ACCESS_ALLOWED_EMAILS: "alice@example.com",
+        OIDC_ISSUER: "https://idp.example",
+        OIDC_CLIENT_ID: "cid",
+        OIDC_CLIENT_SECRET: "csecret",
+        OIDC_ALLOWED_SUBS: "alice@example.com",
+      },
+    });
+    const res = await handleOauthCallback(
+      new Request("https://example/oauth/callback?code=x&state=y"),
+      env,
+    );
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as {
+      error: string;
+      description: string;
+    };
+    expect(body.error).toBe("server misconfigured");
+    expect(body.description).toContain("exactly one");
+  });
+
+  test("returns 503 when no IdP is configured at all", async () => {
+    const env = buildEnv();
+    const res = await handleOauthCallback(
+      new Request("https://example/oauth/callback?code=x&state=y"),
+      env,
+    );
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("server misconfigured");
   });
 
   test("returns 400 when state is unknown (OIDC mode)", async () => {
