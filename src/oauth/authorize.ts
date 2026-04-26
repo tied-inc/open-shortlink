@@ -87,7 +87,16 @@ export async function handleAuthorize(
   }
 
   // OIDC mode: redirect to upstream IdP with PKCE + state + nonce.
-  const discovery = await fetchDiscovery(mode.issuer, env);
+  let discovery;
+  try {
+    discovery = await fetchDiscovery(mode.issuer, env);
+  } catch (err) {
+    return errorResponse(
+      502,
+      "upstream discovery failed",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
   const { verifier, challenge } = await createPkce();
   const state = randomState();
   const nonce = randomState();
@@ -170,7 +179,16 @@ export async function handleOauthCallback(
     );
   }
 
-  const discovery = await fetchDiscovery(mode.issuer, env);
+  let discovery;
+  try {
+    discovery = await fetchDiscovery(mode.issuer, env);
+  } catch (err) {
+    return errorResponse(
+      502,
+      "upstream discovery failed",
+      err instanceof Error ? err.message : String(err),
+    );
+  }
   let tokens;
   try {
     tokens = await exchangeCode(discovery, mode, {

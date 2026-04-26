@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { handleAuthorize, handleOauthCallback } from "../src/oauth/authorize";
 import { createTestEnv } from "./helpers/test-app";
 
@@ -168,5 +168,107 @@ describe("/oauth/callback", () => {
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
     expect(body.error).toContain("access_denied");
+  });
+});
+
+// fetch stubbing infrastructure for the discovery-failure tests below.
+const originalFetch = globalThis.fetch;
+function stubFetch(handler: (input: Request | string | URL) => Response) {
+  globalThis.fetch = (async (input: Request | string | URL) =>
+    handler(input)) as typeof fetch;
+}
+function restoreFetch() {
+  globalThis.fetch = originalFetch;
+}
+
+describe("upstream discovery failure", () => {
+  // OIDC mode requires a non-trivial OAuthProvider stub to reach the
+  // discovery call. We let parseAuthRequest succeed with a minimal request
+  // and have lookupClient return a placeholder client.
+  const oidcProvider = {
+    parseAuthRequest: async (_req: Request) => ({
+      responseType: "code",
+      clientId: "downstream-client",
+      redirectUri: "https://client.example/cb",
+      scope: ["mcp"],
+      state: "downstream-state",
+    }),
+    lookupClient: async (_id: string) => ({
+      clientId: "downstream-client",
+      redirectUris: ["https://client.example/cb"],
+      tokenEndpointAuthMethod: "none",
+    }),
+    completeAuthorization: async () => ({ redirectTo: "https://unused" }),
+  } as any;
+
+  const oidcIdp = {
+    OIDC_ISSUER: "https://idp.example",
+    OIDC_CLIENT_ID: "cid",
+    OIDC_CLIENT_SECRET: "csecret",
+    OIDC_ALLOWED_SUBS: "alice@example.com",
+  } as const;
+
+  beforeEach(() => {
+    // Every discovery URL returns 503 — fetchDiscovery should throw, and the
+    // handlers must translate it into a clear 502 instead of letting it
+    // bubble up as a generic 500.
+    stubFetch(() => new Response("upstream is down", { status: 503 }));
+  });
+  afterEach(() => {
+    restoreFetch();
+  });
+
+  test("/authorize returns 502 when discovery fetch fails (OIDC mode)", async () => {
+    const env = {
+      ...createTestEnv({ idp: oidcIdp }),
+      OAUTH_PROVIDER: oidcProvider,
+    };
+    const res = await handleAuthorize(
+      new Request(
+        "https://example/authorize?response_type=code&client_id=downstream-client",
+      ),
+      env,
+    );
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string; description: string };
+    expect(body.error).toBe("upstream discovery failed");
+    expect(body.description).toContain("OIDC discovery");
+  });
+
+  test("/oauth/callback returns 502 when discovery fetch fails (OIDC mode)", async () => {
+    const env = {
+      ...createTestEnv({ idp: oidcIdp }),
+      OAUTH_PROVIDER: oidcProvider,
+    };
+    // Seed a pending auth so the handler proceeds past the state lookup
+    // and into the discovery branch we want to exercise.
+    const pending = {
+      oauthReq: {
+        responseType: "code",
+        clientId: "downstream-client",
+        redirectUri: "https://client.example/cb",
+        scope: ["mcp"],
+        state: "downstream-state",
+      },
+      pkceVerifier: "v".repeat(43),
+      nonce: "nonce-value",
+      redirectUri: "https://example/oauth/callback",
+      issuer: oidcIdp.OIDC_ISSUER,
+    };
+    await env.OAUTH_KV.put(
+      "upstream_oidc_state:state-abc",
+      JSON.stringify(pending),
+      { expirationTtl: 600 },
+    );
+
+    const res = await handleOauthCallback(
+      new Request(
+        "https://example/oauth/callback?code=upstream-code&state=state-abc",
+      ),
+      env,
+    );
+    expect(res.status).toBe(502);
+    const body = (await res.json()) as { error: string };
+    expect(body.error).toBe("upstream discovery failed");
   });
 });
