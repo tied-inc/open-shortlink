@@ -1,98 +1,134 @@
 ---
 name: shortlink
-description: Open Shortlink の MCP ツールで短縮 URL を作成・管理し、クリック統計や AI アクセス比率を分析するためのガイド。ユーザーが URL を短縮したい、短縮済みリンクの一覧・詳細・削除を求めた、クリック分析やトップリンク、AI ボット経由のアクセス比率を知りたいと言ったときに使う。
+description: Use the Open Shortlink MCP tools to create and manage shortened URLs and to analyze click-through statistics, including the AI-bot share of traffic. Invoke when the user asks to shorten a URL, list / inspect / delete existing short links, or wants click analytics, top-link rankings, or AI-traffic ratios.
 ---
 
-# Open Shortlink スキル
+# Open Shortlink skill
 
-Open Shortlink は Cloudflare Workers 上で動く URL 短縮サービスで、Remote MCP サーバーを内蔵している。このスキルは `shortlink` MCP サーバーが提供する 7 つのツールを正しく使い分けるための指針をまとめたもの。
+Open Shortlink is a URL shortener that runs on Cloudflare Workers and embeds
+a Remote MCP server. This skill is a guide for picking the right tool from
+the seven exposed by the `shortlink` MCP server.
 
-## 前提
+## Prerequisites
 
-- 接続先: `${SHORTLINK_MCP_URL}`（例: `https://your-shortlink.workers.dev/mcp`）
-- 認証: **OAuth 2.1**。初回接続時にブラウザで `/authorize` が開き、Worker 側で構成された IdP（Cloudflare Access か任意の OpenID Connect プロバイダ）でサインインする。Claude Code / Claude Desktop の MCP クライアントがアクセストークンを自動取得・更新するため、クライアント側で静的トークンを保持する必要はない。
-- MCP 接続情報は `.claude-plugin/plugin.json` の `mcpServers.shortlink` に定義済み。環境変数 `SHORTLINK_MCP_URL` を設定すれば有効化される。
+- Endpoint: `${SHORTLINK_MCP_URL}` (e.g. `https://your-shortlink.workers.dev/mcp`).
+- Auth: **OAuth 2.1**. On first use the MCP client opens `/authorize` in the
+  browser and the user signs in via the IdP that the Worker is configured
+  for (Cloudflare Access or any OpenID Connect provider). Claude Desktop /
+  Claude Code obtain and refresh the access token automatically — there is
+  no static token to manage on the client.
+- The connection is wired up in `.claude-plugin/plugin.json` under
+  `mcpServers.shortlink`. Setting the `SHORTLINK_MCP_URL` environment
+  variable enables the connection.
 
-## ツールの使い分け
+## Choosing a tool
 
-| やりたいこと | 使うツール |
+| Goal | Tool |
 |---|---|
-| 新しい短縮 URL を発行 | `create_link` |
-| 既存リンクを一覧表示（ページング可） | `list_links` |
-| 特定 slug の詳細を確認 | `get_link` |
-| リンクを削除 | `delete_link` |
-| 特定 slug のクリック統計（国/リファラー/AI 比） | `get_analytics` |
-| 期間内のクリック数ランキング | `get_top_links` |
-| サイト全体の AI ボット比率とボット別内訳 | `get_ai_stats` |
+| Issue a new short URL | `create_link` |
+| List existing links (paginated) | `list_links` |
+| Inspect a specific slug | `get_link` |
+| Delete a link | `delete_link` |
+| Per-slug click stats (country / referrer / AI ratio) | `get_analytics` |
+| Click-count ranking over a period | `get_top_links` |
+| Site-wide AI-bot ratio and per-bot breakdown | `get_ai_stats` |
 
-## `create_link` の作法
+## Using `create_link`
 
-- `url` は必須。`https://` または `http://` から始まる絶対 URL を渡す。相対パスや裸のドメインは 400 になる。
-- `slug` を省略すると 6 文字の base62 slug が自動生成される（約 568 億通り）。衝突を気にする必要はほぼない。
-- カスタム `slug` を指定する場合:
-  - 使える文字は英数字・ハイフン (`-`)・アンダースコア (`_`) のみ
-  - `api` または `mcp` で始まる slug は**禁止**（Worker のルーティング衝突防止）
-  - 既に存在する slug を指定すると 409 `LinkConflictError`。別の slug に変えて再試行する
-- `expiresIn` は秒単位。省略時は無期限。KV の `expirationTtl` により Cloudflare 側で自動削除される。
-  - 1 日 = 86400, 1 週間 = 604800, 30 日 = 2592000
-- 生成後はレスポンスの `shortUrl` をユーザーに提示する。`slug` 単体ではなく完全な URL を伝えると親切。
+- `url` is required. It must be an absolute URL starting with `https://` or
+  `http://`. Relative paths or bare domains return 400.
+- If `slug` is omitted, a 6-character base62 slug is generated automatically
+  (~56.8 billion combinations, so collisions are essentially never an issue).
+- When specifying a custom `slug`:
+  - Allowed characters: letters, digits, hyphen (`-`), underscore (`_`).
+  - Slugs starting with `api` or `mcp` are **forbidden** (they collide with
+    Worker routing).
+  - A duplicate slug returns 409 `LinkConflictError`. Try a different slug.
+- `expiresIn` is in seconds. Omit for no expiration. Cloudflare deletes
+  expired entries automatically via KV's `expirationTtl`.
+  - 1 day = 86400, 1 week = 604800, 30 days = 2592000.
+- After creation, surface the response's `shortUrl` to the user — the full
+  URL is more useful than the slug alone.
 
-### 期限設定のガイドライン
+### Expiration guidance
 
-| 用途 | 推奨 `expiresIn` |
+| Use case | Suggested `expiresIn` |
 |---|---|
-| キャンペーン・告知（イベント日決まっている） | イベント終了までの秒数 |
-| 一時共有（チャットで 1 回使うだけ） | 86400（1 日）〜 604800（1 週間） |
-| 恒久リンク（ドキュメント、プロフィール） | 省略（無期限） |
+| Campaigns / announcements with a known end date | seconds until the event ends |
+| One-off shares (used once in a chat) | 86400 (1 day) – 604800 (1 week) |
+| Long-lived links (docs, profiles) | omit (no expiration) |
 
-期限を付けるかユーザーが明示していないときは**基本的に無期限**で作る。勝手に期限を付けない。
+If the user has not asked for an expiration, **default to no expiration**.
+Don't add one unprompted.
 
-## 分析系ツールの作法
+## Using the analytics tools
 
-### `period` パラメータ
+### `period` parameter
 
-- 受け付ける値は `"1d" | "7d" | "30d" | "90d"` のみ。他の値は渡さない。
-- 省略時のデフォルトは `"7d"`。
-- ユーザーが「昨日」「今日」と言ったら `1d`、「先週」「1 週間」なら `7d`、「今月」「直近 1 ヶ月」なら `30d`、「四半期」「3 ヶ月」なら `90d` にマップする。任意日数（例: 14 日）はサポートされていない — 直近の上位の期間（この場合 30d）を使いフィルタ不可と伝える。
+- Allowed values: `"1d" | "7d" | "30d" | "90d"`. Don't pass anything else.
+- Default when omitted: `"7d"`.
+- Map natural-language phrases:
+  - "today" / "yesterday" → `1d`
+  - "last week" / "past week" → `7d`
+  - "this month" / "past month" → `30d`
+  - "this quarter" / "past 3 months" → `90d`
+- Arbitrary windows (e.g. 14 days) are not supported. Use the next-larger
+  preset (`30d`) and tell the user the result is not filtered to exactly 14
+  days.
 
-### `get_analytics` の読み方
+### Reading `get_analytics`
 
-レスポンスには以下が含まれる:
+The response includes:
 
-- `totalClicks` / `aiClicks` / `humanClicks`: AI と人間のクリック内訳
-- `uniqueCountries`: アクセス元の国数
-- `topReferers`: 上位リファラー（`referer` + `clicks`）
-- `topCountries`: 上位国コード（`country` + `clicks`）
+- `totalClicks` / `aiClicks` / `humanClicks` — split between AI and humans.
+- `uniqueCountries` — number of distinct source countries.
+- `topReferers` — top referrers, with `referer` and `clicks`.
+- `topCountries` — top countries, with `country` and `clicks`.
 
-ユーザーに見せるときは数値を羅列するのではなく、**目立つ変化や偏り**に触れる（例: 「AI 比率が 30% と高め」「JP と US で 70% を占める」）。
+When summarizing for the user, don't just dump the numbers — call out
+**notable patterns or skews** (e.g. "AI traffic is unusually high at 30%",
+"JP and US together account for 70%").
 
 ### `get_top_links`
 
-`limit` のデフォルトは 10。ユーザーが「トップ 5」などと言えば `limit: 5` を渡す。返り値の `links` は slug とクリック数の配列なので、**同時に `get_link` で URL を引いて見せる**と実用的。必要なら並列で呼び出してよい。
+`limit` defaults to 10. If the user says "top 5", pass `limit: 5`. The
+returned `links` array contains slugs and click counts only — pair it with
+parallel `get_link` calls when you need URLs to display.
 
 ### `get_ai_stats`
 
-`aiRatio` は 0〜1 の小数。ユーザーに見せるときは**百分率に直す**（`0.09` → `9%`）。`byBot` は `GPTBot`, `ClaudeBot`, `PerplexityBot` などのボット名と件数。0 件のボットは省略されることがある。
+`aiRatio` is a fraction between 0 and 1; **convert to a percentage** when
+showing it (`0.09` → `9%`). `byBot` lists bot names (`GPTBot`,
+`ClaudeBot`, `PerplexityBot`, etc.) with click counts. Bots with zero hits
+may be omitted.
 
-## エラーハンドリング
+## Error handling
 
-| エラー | 原因 | 対処 |
+| Error | Cause | Action |
 |---|---|---|
-| `LinkValidationError` | URL または slug の形式が不正 | 入力を見直してユーザーに確認 |
-| `LinkConflictError` | slug が既に存在 | 別 slug を提案（自動生成に切り替える等） |
-| `LinkNotFoundError` | 指定 slug が存在しない | `list_links` で実在する slug を確認してから再試行 |
-| `429 Too Many Requests` | IP あたり 60 秒 120 リクエスト超過 | `Retry-After` ヘッダーに従って待つ。一括処理なら件数を減らす |
-| `Analytics query is not configured` | `CF_ACCOUNT_ID` / `CF_ANALYTICS_TOKEN` 未設定 | サーバー側設定の問題。ユーザーに Worker の secret 設定を確認してもらう |
+| `LinkValidationError` | Malformed URL or slug | Re-check input with the user |
+| `LinkConflictError` | Slug already exists | Suggest a different slug or fall back to auto-generation |
+| `LinkNotFoundError` | Slug does not exist | Run `list_links` to find a valid slug, then retry |
+| `429 Too Many Requests` | Exceeded 120 req / 60 s per IP | Honor `Retry-After`; for batch work, slow down |
+| `Analytics query is not configured` | `CF_ACCOUNT_ID` / `CF_ANALYTICS_TOKEN` not set | Ask the operator to configure those Worker secrets |
 
-## バッチ処理のヒント
+## Batch tips
 
-- 複数 URL の一括短縮: `create_link` を並列呼び出しで OK。ただし連続で大量に叩くとレート制限に当たるので、数十件を超える場合は逐次 + 小休止を入れる。
-- 一覧の全走査: `list_links` は cursor ページネーション。`cursor` が返ってこなくなるまでループする。
-- トップリンクの詳細取得: `get_top_links` → 各 slug に `get_link` を並列実行、が定番。
+- Bulk shortening: parallel `create_link` calls are fine, but you'll trip
+  rate limits past a few dozen — switch to sequential calls with small
+  pauses for larger batches.
+- Full enumeration: `list_links` is cursor-paginated. Loop until `cursor`
+  stops appearing in the response.
+- Top-link details: the canonical pattern is `get_top_links` followed by
+  parallel `get_link` calls for each slug.
 
-## やってはいけないこと
+## Don't
 
-- `slug` に `api`, `mcp`, `authorize`, `token`, `register`, `oauth` から始まる文字列を提案しない（ルーティング衝突で常に失敗する）
-- `expiresIn` を勝手に付けない — ユーザーが期限を望んでいない限り無期限で作る
-- `period` に `"14d"` や `"1m"` など定義外の値を渡さない
-- 認証エラー（401）が出たら再試行せず、ユーザーに MCP クライアントの再認可（OAuth 再サインイン）を促す。503 が返る場合は Worker 側の IdP 設定（`CF_ACCESS_*` または `OIDC_*`）が不足しているので、運用者に確認してもらう
+- Suggest slugs starting with `api`, `mcp`, `authorize`, `token`, `register`,
+  or `oauth` — they collide with Worker routing and always fail.
+- Add `expiresIn` unprompted — default to no expiration unless the user
+  asks.
+- Pass undocumented `period` values like `"14d"` or `"1m"`.
+- Retry on 401 silently — prompt the user to reauthorize the MCP client
+  (sign in again via OAuth). On 503, the Worker's IdP configuration
+  (`CF_ACCESS_*` or `OIDC_*`) is incomplete; tell the operator to check it.

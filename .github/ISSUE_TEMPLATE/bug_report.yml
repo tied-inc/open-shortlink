@@ -1,0 +1,94 @@
+name: Bug report
+description: Report a defect in Open Shortlink (Worker, API, MCP, or docs).
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to file a bug report!
+
+        **Security issues should NOT be reported here** — please follow
+        [SECURITY.md](https://github.com/tied-inc/open-shortlink/blob/main/SECURITY.md)
+        and use the private vulnerability reporting flow.
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: One-line description of the bug.
+      placeholder: e.g. POST /api/links accepts URLs containing localhost
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal reproduction. Include request payloads / commands.
+      placeholder: |
+        1. `curl -X POST .../api/links -d '{"url":"http://localhost"}'`
+        2. Observe response: 201 Created
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+      description: Include status code, response body, and any logs.
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: Commit / version
+      description: Git SHA or release tag of the Worker you tested against.
+      placeholder: e.g. f6d6a7c or v0.4.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      multiple: true
+      options:
+        - Redirect (`GET /:slug`)
+        - REST API (`/api/*`)
+        - MCP (`/mcp`)
+        - OAuth / OIDC flow
+        - Analytics
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: |
+        IdP mode (Cloudflare Access / generic OIDC), client (curl / Claude
+        Desktop / etc.), and any custom configuration relevant to the bug.
+      placeholder: |
+        - IdP mode: OIDC (Auth0)
+        - Client: Claude Desktop 0.x
+        - Custom domain split: yes
+    validations:
+      required: false
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: Logs, screenshots, or anything else useful.
+    validations:
+      required: false
