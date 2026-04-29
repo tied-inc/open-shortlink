@@ -1,0 +1,61 @@
+name: Feature request
+description: Suggest a new feature or enhancement for Open Shortlink.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for proposing an improvement! Smaller, well-motivated
+        proposals land faster than large speculative ones — describe the
+        use case before jumping to an implementation.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / use case
+      description: What are you trying to accomplish? What is hard or impossible today?
+      placeholder: |
+        I want to issue short links from a Slack workflow, but the API
+        requires interactive OAuth which doesn't fit a server-to-server use case.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe what you'd like to see. API shape, config knobs, etc.
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds did you try? Why are they insufficient?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Affected surface
+      multiple: true
+      options:
+        - Redirect (`GET /:slug`)
+        - REST API (`/api/*`)
+        - MCP (`/mcp`)
+        - OAuth / OIDC flow
+        - Analytics
+        - Deployment / operations
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+    validations:
+      required: false

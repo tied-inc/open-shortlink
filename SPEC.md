@@ -1,170 +1,180 @@
-# Open Shortlink 仕様書
+# Open Shortlink Specification
 
-## 概要
+> 🇯🇵 [日本語版 / Japanese version](./SPEC.ja.md)
 
-オープンソースの URL 短縮サービス。Cloudflare Workers 上で動作し、無料枠の範囲で運用可能。
+## Overview
 
-## 設計方針
+An open-source URL shortener that runs on Cloudflare Workers within the free
+tier for typical small workloads.
 
-- **シングルテナント**: ユーザー管理なし。必要な人が fork して自分の Cloudflare にデプロイする
-- **低コスト**: Cloudflare 無料枠で月額 $0 運用が可能
-- **AI ネイティブ**: Web UI なし。REST API と Remote MCP サーバーで管理
-- **単一 Worker**: リダイレクト・API・MCP サーバーをすべて 1 つの Worker に統合
+## Design principles
 
-## テックスタック
+- **Single-tenant**: no user management. Each operator forks the project and
+  deploys it to their own Cloudflare account.
+- **Low cost**: free-tier deployment is fully supported.
+- **AI-native**: no web UI; managed entirely through the REST API or the
+  built-in Remote MCP server.
+- **Single Worker**: redirect, REST API, and MCP server are all served from a
+  single Worker.
 
-| レイヤー | 技術 |
+## Stack
+
+| Layer | Technology |
 |---|---|
-| フレームワーク | Hono |
-| 言語 | TypeScript |
-| パッケージマネージャー | Bun |
-| リダイレクト用ストレージ | Cloudflare KV（geo バリアント対応） |
-| 分析 | Cloudflare Analytics Engine |
-| MCP | Remote MCP (Worker 内蔵) |
-| ドキュメント | VitePress (GitHub Pages) |
+| Framework | Hono |
+| Language | TypeScript |
+| Package manager | Bun |
+| Redirect storage | Cloudflare KV (with geo-variant support) |
+| Analytics | Cloudflare Analytics Engine |
+| MCP | Remote MCP (built into the Worker) |
+| Documentation | VitePress (GitHub Pages) |
 
-## Cloudflare リソース
+## Cloudflare resources
 
-| リソース | バインディング名 | 用途 | 無料枠 |
+| Resource | Binding | Purpose | Free tier |
 |---|---|---|---|
-| Workers | — | アプリケーション実行 | 10万リクエスト/日 |
-| KV | `SHORTLINKS` | slug → URL マッピング | 読取10万/日, 書込1k/日 |
-| Analytics Engine | `ANALYTICS` | クリックデータ記録 | 書込10万/日, 読取1万クエリ/日 |
+| Workers | — | Application runtime | 100k requests / day |
+| KV | `SHORTLINKS` | slug → URL mapping | 100k reads / day, 1k writes / day |
+| Analytics Engine | `ANALYTICS` | Click data | 100k writes / day, 10k queries / day |
 
-## 環境変数
+## Environment variables
 
-Worker は **OAuth 2.1** で保護され、ユーザー認証は外部 IdP に委任する。
-モード A（Cloudflare Access）とモード B（汎用 OIDC）のいずれか一方を設定する
-（両方設定すると `/authorize` は 503）。
+The Worker is protected by **OAuth 2.1**. User authentication is delegated
+to an external IdP. Configure **exactly one** of Mode A (Cloudflare Access)
+or Mode B (generic OIDC); if both are configured, `/authorize` returns 503.
 
-### モード A: Cloudflare Access
+### Mode A: Cloudflare Access
 
-| 変数名 | 必須 | 説明 |
+| Name | Required | Description |
 |---|---|---|
-| `CF_ACCESS_TEAM_DOMAIN` | ◯ | 例: `acme.cloudflareaccess.com` |
-| `CF_ACCESS_AUD` | ◯ | Access アプリの AUD タグ |
-| `ACCESS_ALLOWED_EMAILS` | ◯ | 許可 email のカンマ区切り（空なら 503） |
+| `CF_ACCESS_TEAM_DOMAIN` | ◯ | e.g. `acme.cloudflareaccess.com` |
+| `CF_ACCESS_AUD` | ◯ | AUD tag of the Access application |
+| `ACCESS_ALLOWED_EMAILS` | ◯ | Comma-separated email allowlist (empty → 503) |
 
-### モード B: 汎用 OIDC
+### Mode B: generic OIDC
 
-| 変数名 | 必須 | 説明 |
+| Name | Required | Description |
 |---|---|---|
-| `OIDC_ISSUER` | ◯ | 上流 OpenID Connect プロバイダの issuer URL |
-| `OIDC_CLIENT_ID` | ◯ | 上流で発行された client_id |
-| `OIDC_CLIENT_SECRET` | ◯ | 上流で発行された client secret（Secret として保存） |
-| `OIDC_ALLOWED_SUBS` | ◯ | サインインを許可する email / sub のカンマ区切り（空なら 503） |
-| `OIDC_SCOPES` | 任意 | 上流に要求するスコープ（既定: `openid email profile`） |
+| `OIDC_ISSUER` | ◯ | Issuer URL of the upstream OpenID Connect provider |
+| `OIDC_CLIENT_ID` | ◯ | client_id issued by the upstream IdP |
+| `OIDC_CLIENT_SECRET` | ◯ | Client secret (store as a Worker Secret) |
+| `OIDC_ALLOWED_SUBS` | ◯ | Comma-separated email / sub allowlist (empty → 503) |
+| `OIDC_SCOPES` | optional | Space-separated scopes (default: `openid email profile`) |
 
-### その他
+### Other
 
-| 変数名 | 必須 | 説明 | 設定方法 |
+| Name | Required | Description | How to set |
 |---|---|---|---|
-| `CF_ACCOUNT_ID` | 分析API使用時 | Cloudflare アカウント ID | `wrangler secret put CF_ACCOUNT_ID` |
-| `CF_ANALYTICS_TOKEN` | 分析API使用時 | Analytics Engine 読み取り権限付き API トークン | `wrangler secret put CF_ANALYTICS_TOKEN` |
-| `CORS_ALLOW_ORIGIN` | 任意 | カンマ区切りの CORS allowlist。未設定または `*` で全許可。 | `wrangler secret put CORS_ALLOW_ORIGIN` |
-| `PUBLIC_BASE_URL` | 任意 | `shortUrl` に使う正本オリジン | `wrangler secret put PUBLIC_BASE_URL` |
-| `REDIRECT_HOST` / `API_HOST` | 任意 | ホスト分割を強制する | `[vars]` or Secret |
+| `CF_ACCOUNT_ID` | when using analytics queries | Cloudflare account ID | `wrangler secret put CF_ACCOUNT_ID` |
+| `CF_ANALYTICS_TOKEN` | when using analytics queries | API token with Analytics Engine read | `wrangler secret put CF_ANALYTICS_TOKEN` |
+| `CORS_ALLOW_ORIGIN` | optional | Comma-separated CORS allowlist; unset or `*` allows all origins | `wrangler secret put CORS_ALLOW_ORIGIN` |
+| `PUBLIC_BASE_URL` | optional | Canonical origin used in `shortUrl` responses | `wrangler secret put PUBLIC_BASE_URL` |
+| `REDIRECT_HOST` / `API_HOST` | optional | Force host-split routing | `[vars]` or Secret |
 
-## ストレージ設計
+## Storage design
 
 ### KV
 
 ```
-Key:      slug (例: "abc123")
-Value:    対象 URL (例: "https://example.com/very/long/path")
-          または geo 付きの場合は JSON エンベロープ
+Key:      slug (e.g. "abc123")
+Value:    target URL (e.g. "https://example.com/very/long/path")
+          OR a JSON envelope when geo variants are present:
           { "u": "https://example.com", "g": { "US": "...", "JP": "..." } }
 Metadata: { createdAt: number, expiresAt?: number, url?: string }
 ```
 
-- `expirationTtl` で有効期限を実現（Cloudflare が自動削除）
-- geo バリアントが無いリンクは value を生の URL として保存（後方互換）
+- Expirations use KV's `expirationTtl` (Cloudflare deletes the entry
+  automatically).
+- Links without geo variants are stored as a raw URL string (back-compat).
 
 ### Analytics Engine
 
-| カラム | 型 | 内容 |
+| Column | Type | Contents |
 |---|---|---|
 | blob1 | string | slug |
-| blob2 | string | リファラー |
-| blob3 | string | 国コード（`request.cf.country`） |
+| blob2 | string | Referrer |
+| blob3 | string | Country code (`request.cf.country`) |
 | blob4 | string | User-Agent |
-| blob5 | string | AI フラグ (`"ai"` / `"human"`) |
-| double1 | number | タイムスタンプ (Unix ms) |
+| blob5 | string | AI flag (`"ai"` / `"human"`) |
+| double1 | number | Timestamp (Unix ms) |
 
-## エンドポイント
+## Endpoints
 
-### リダイレクト（認証なし）
+### Redirect (no authentication)
 
-| メソッド | パス | 説明 |
+| Method | Path | Description |
 |---|---|---|
-| GET | `/:slug` | 302 リダイレクト。KV から URL を取得し、Analytics Engine にクリックデータを非同期記録 |
+| GET | `/:slug` | 302 redirect. Reads the URL from KV and asynchronously logs the click to Analytics Engine. |
 
-### リンク管理 API（OAuth アクセストークン認証）
+### Link management API (OAuth access token)
 
-| メソッド | パス | 説明 |
+| Method | Path | Description |
 |---|---|---|
-| POST | `/api/links` | 短縮 URL 作成 |
-| GET | `/api/links` | リンク一覧（cursor ページネーション） |
-| GET | `/api/links/:slug` | リンク詳細 |
-| DELETE | `/api/links/:slug` | リンク削除 |
+| POST | `/api/links` | Create a short URL |
+| GET | `/api/links` | List links (cursor-paginated) |
+| GET | `/api/links/:slug` | Link details |
+| DELETE | `/api/links/:slug` | Delete a link |
 
-### 分析 API（OAuth アクセストークン認証）
+### Analytics API (OAuth access token)
 
-| メソッド | パス | 説明 |
+| Method | Path | Description |
 |---|---|---|
-| GET | `/api/analytics/:slug` | slug 別クリック統計 |
-| GET | `/api/analytics/:slug/timeseries` | 時系列データ |
-| GET | `/api/analytics/top` | トップリンク |
-| GET | `/api/analytics/ai` | AI アクセス統計 |
+| GET | `/api/analytics/:slug` | Per-slug click stats |
+| GET | `/api/analytics/:slug/timeseries` | Time-series data |
+| GET | `/api/analytics/top` | Top links |
+| GET | `/api/analytics/ai` | AI traffic stats |
 
-### MCP（Bearer token 認証）
+### MCP (OAuth access token)
 
-| パス | 説明 |
+| Path | Description |
 |---|---|
-| `/mcp` | Remote MCP サーバーエンドポイント |
+| `/mcp` | Remote MCP server endpoint |
 
-## API 詳細
+## API details
 
 ### POST /api/links
 
-リクエスト:
+Request:
 ```json
 {
   "url": "https://example.com/path",
-  "slug": "custom-slug",    // optional, 省略時は6文字自動生成
-  "expiresIn": 86400,        // optional, 秒。省略時は無期限
-  "geo": {                   // optional, 国別リダイレクト先
+  "slug": "custom-slug",    // optional; auto-generated 6-char slug if omitted
+  "expiresIn": 86400,        // optional; seconds. Omit for no expiration.
+  "geo": {                   // optional; per-country redirect overrides
     "US": "https://example.com/en",
     "JP": "https://example.com/ja"
   }
 }
 ```
 
-- `geo` のキーは ISO 3166-1 alpha-2（2 文字大文字）。小文字入力は大文字へ正規化
-- `geo` のいずれかの値が不正 URL / 自ホスト向けなら 400
-- `geo` に一致する国コードが無い場合は `url`（デフォルト）にフォールバック
+- `geo` keys must be ISO 3166-1 alpha-2 (two-letter, uppercase). Lowercase
+  input is normalized.
+- If any `geo` value is invalid or points to the Worker's own host, the
+  request is rejected with 400.
+- If no `geo` entry matches the requesting country, the request falls back
+  to `url` (the default).
 
-レスポンス (201):
+Response (201):
 ```json
 {
   "slug": "abc123",
   "url": "https://example.com/path",
-  "geo": { "US": "...", "JP": "..." },  // geo 指定時のみ
+  "geo": { "US": "...", "JP": "..." },  // present only when geo was set
   "shortUrl": "https://your-domain.com/abc123",
   "createdAt": "2025-01-01T00:00:00Z",
   "expiresAt": "2025-01-02T00:00:00Z"
 }
 ```
 
-エラー:
-- 400: URL 不正 / スラッグ無効 / geo キー不正 / geo URL 不正
-- 409: スラッグ重複
+Errors:
+- 400: invalid URL / invalid slug / invalid geo key / invalid geo URL
+- 409: slug already in use
 
 ### GET /api/links
 
-クエリ: `?limit=20&cursor=xxx`
+Query: `?limit=20&cursor=xxx`
 
-レスポンス (200):
+Response (200):
 ```json
 {
   "links": [{ "slug", "url", "shortUrl", "createdAt", "expiresAt" }],
@@ -174,19 +184,19 @@ Metadata: { createdAt: number, expiresAt?: number, url?: string }
 
 ### GET /api/links/:slug
 
-レスポンス (200): リンクオブジェクト
-エラー: 404
+Response (200): a link object.
+Errors: 404.
 
 ### DELETE /api/links/:slug
 
-レスポンス: 204
-エラー: 404
+Response: 204.
+Errors: 404.
 
 ### GET /api/analytics/:slug
 
-クエリ: `?period=7d` (1d, 7d, 30d, 90d)
+Query: `?period=7d` (1d, 7d, 30d, 90d).
 
-レスポンス (200):
+Response (200):
 ```json
 {
   "slug": "abc123",
@@ -202,9 +212,9 @@ Metadata: { createdAt: number, expiresAt?: number, url?: string }
 
 ### GET /api/analytics/:slug/timeseries
 
-クエリ: `?period=7d&interval=1d` (interval: 1h, 1d)
+Query: `?period=7d&interval=1d` (interval: `1h`, `1d`).
 
-レスポンス (200):
+Response (200):
 ```json
 {
   "slug": "abc123",
@@ -216,9 +226,9 @@ Metadata: { createdAt: number, expiresAt?: number, url?: string }
 
 ### GET /api/analytics/top
 
-クエリ: `?period=7d&limit=10`
+Query: `?period=7d&limit=10`.
 
-レスポンス (200):
+Response (200):
 ```json
 {
   "period": "7d",
@@ -228,9 +238,9 @@ Metadata: { createdAt: number, expiresAt?: number, url?: string }
 
 ### GET /api/analytics/ai
 
-クエリ: `?period=7d`
+Query: `?period=7d`.
 
-レスポンス (200):
+Response (200):
 ```json
 {
   "period": "7d",
@@ -242,29 +252,33 @@ Metadata: { createdAt: number, expiresAt?: number, url?: string }
 }
 ```
 
-## MCP ツール
+## MCP tools
 
-| ツール名 | 説明 | 対応 API |
+| Tool | Description | Maps to |
 |---|---|---|
-| `create_link` | 短縮 URL 作成 | POST /api/links |
-| `list_links` | リンク一覧 | GET /api/links |
-| `get_link` | リンク詳細 | GET /api/links/:slug |
-| `delete_link` | リンク削除 | DELETE /api/links/:slug |
-| `get_analytics` | slug 別統計 | GET /api/analytics/:slug |
-| `get_timeseries` | 時系列クリックデータ | GET /api/analytics/:slug/timeseries |
-| `get_top_links` | トップリンク | GET /api/analytics/top |
-| `get_ai_stats` | AI アクセス統計 | GET /api/analytics/ai |
+| `create_link` | Create a short URL | POST /api/links |
+| `list_links` | List links | GET /api/links |
+| `get_link` | Link details | GET /api/links/:slug |
+| `delete_link` | Delete a link | DELETE /api/links/:slug |
+| `get_analytics` | Per-slug stats | GET /api/analytics/:slug |
+| `get_timeseries` | Time-series clicks | GET /api/analytics/:slug/timeseries |
+| `get_top_links` | Top links | GET /api/analytics/top |
+| `get_ai_stats` | AI traffic stats | GET /api/analytics/ai |
 
-## Slug 生成
+## Slug generation
 
-- NanoID ベースの base62 (a-z, A-Z, 0-9)
-- デフォルト長: 6文字 (62^6 ≒ 568億パターン)
-- カスタムスラッグ: 英数字、ハイフン、アンダースコア許可 (最大64文字)
-- 予約済み: `api`, `mcp` プレフィックス（ルーティング衝突防止）および `health`, `healthz`, `ready`, `readyz`, `metrics`, `favicon.ico`, `robots.txt`, `sitemap.xml`, `.well-known`（将来の well-known パス用）
+- NanoID-based base62 (a-z, A-Z, 0-9).
+- Default length: 6 characters (62^6 ≈ 56.8 billion combinations).
+- Custom slugs may use letters, digits, hyphen (`-`), and underscore (`_`),
+  up to 64 characters.
+- Reserved: the `api` and `mcp` prefixes (to avoid routing collisions),
+  plus the well-known paths `health`, `healthz`, `ready`, `readyz`,
+  `metrics`, `favicon.ico`, `robots.txt`, `sitemap.xml`, and `.well-known`.
 
-## AI User-Agent 判定
+## AI User-Agent detection
 
-以下のパターンを含む User-Agent を AI アクセスと判定:
+User-Agents containing any of the following substrings are classified as AI
+traffic:
 
 ```
 GPTBot, ChatGPT-User, ClaudeBot, Claude-Web,
@@ -273,129 +287,159 @@ Google-Extended, CCBot, anthropic-ai, cohere-ai,
 meta-externalagent
 ```
 
-## 認証
+## Authentication
 
-公式ポリシー（運用者必読）は [docs/guide/security.md](./docs/guide/security.md)
-に集約。本 SPEC では仕様として守るべき振る舞いのみを規定する。
+The operator-facing security policy lives in
+[`docs/guide/security.md`](./docs/guide/security.md). This SPEC only specifies
+the behaviors the implementation must guarantee.
 
-- **第一線（必須）**: OAuth 2.1（PKCE S256 + 動的クライアント登録）。
-  `@cloudflare/workers-oauth-provider` が `/api/*` と `/mcp` のアクセストークン
-  検証を担う
-- **ユーザー認証は外部 IdP に委任**。運用者は以下のどちらか一方を設定する:
-  - モード A: Cloudflare Access — `CF_ACCESS_TEAM_DOMAIN` / `CF_ACCESS_AUD` /
-    `ACCESS_ALLOWED_EMAILS` を設定し、Access が付与する `Cf-Access-Jwt-Assertion`
-    を JWKS（`https://<team>/cdn-cgi/access/certs`）で検証する
-  - モード B: 汎用 OIDC — `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` /
-    `OIDC_ALLOWED_SUBS` を設定し、`${issuer}/.well-known/openid-configuration`
-    から discovery を取得して上流 IdP に OAuth 2.1 + PKCE で委任する
-- リダイレクトエンドポイント (`GET /:slug`): 認証なし
-- `/api/*` と `/mcp`: 有効な OAuth アクセストークン必須。OAuthProvider が
-  無効時に 401 Unauthorized を返す
-- `/authorize` の挙動:
-  - IdP 未設定、両モード同時設定、allowlist 空のいずれかの場合は **503**
-  - Access モード: `Cf-Access-Jwt-Assertion` を JWKS で検証し、`iss` / `aud` /
-    `exp` とメール allowlist を満たせば `completeAuthorization` を呼び、
-    下流クライアントへ 302 リダイレクト
-  - OIDC モード: PKCE (S256) / state / nonce を生成し、上流 IdP の
-    `authorization_endpoint` へ 302 リダイレクト
-- `/oauth/callback`（OIDC モード専用）:
-  - `state` を OAUTH_KV から引き当てて使い捨て（TTL 10 分）
-  - 上流 `/token` に `code` + PKCE `code_verifier` を送って ID token 取得
-  - ID token を JWKS で検証し、`iss` / `aud` / `nonce` / `exp` と allowlist を
-    照合してから `completeAuthorization`
-- allowlist 照合は **完全一致・case-insensitive**。空白は両端 trim
-- 上流 issuer が `/authorize` と `/oauth/callback` の間で変わっていたら 400
-- アクセストークン寿命: 既定 1 時間 / リフレッシュトークン: 30 日
+- **Primary line of defense (required)**: OAuth 2.1 (PKCE S256 + dynamic
+  client registration). `@cloudflare/workers-oauth-provider` validates access
+  tokens for `/api/*` and `/mcp`.
+- **User authentication is delegated to an external IdP.** The operator
+  configures **either**:
+  - Mode A — Cloudflare Access: set `CF_ACCESS_TEAM_DOMAIN`,
+    `CF_ACCESS_AUD`, and `ACCESS_ALLOWED_EMAILS`. The Worker verifies the
+    `Cf-Access-Jwt-Assertion` header against the team JWKS at
+    `https://<team>/cdn-cgi/access/certs`.
+  - Mode B — generic OIDC: set `OIDC_ISSUER`, `OIDC_CLIENT_ID`,
+    `OIDC_CLIENT_SECRET`, and `OIDC_ALLOWED_SUBS`. The Worker fetches
+    discovery from `${issuer}/.well-known/openid-configuration` and delegates
+    via OAuth 2.1 + PKCE.
+- Redirect endpoint (`GET /:slug`): unauthenticated.
+- `/api/*` and `/mcp`: require a valid OAuth access token. OAuthProvider
+  returns 401 Unauthorized when invalid.
+- `/authorize` behavior:
+  - Returns **503** if no IdP is configured, both modes are configured at
+    the same time, or the relevant allowlist is empty.
+  - Access mode: validates `Cf-Access-Jwt-Assertion` against the JWKS,
+    checks `iss` / `aud` / `exp` and the email allowlist, then calls
+    `completeAuthorization` and 302-redirects the downstream client.
+  - OIDC mode: generates PKCE (S256), `state`, and `nonce`, then 302-
+    redirects to the upstream IdP's `authorization_endpoint`.
+- `/oauth/callback` (OIDC mode only):
+  - Looks up `state` in OAUTH_KV (single-use, 10-minute TTL).
+  - Posts `code` + PKCE `code_verifier` to the upstream `/token` and
+    receives the ID token.
+  - Verifies the ID token against the JWKS, checks `iss` / `aud` / `nonce`
+    / `exp` and the allowlist, then calls `completeAuthorization`.
+- Allowlist matching is **exact, case-insensitive**, with whitespace
+  trimmed from both ends.
+- If the upstream issuer changes between `/authorize` and `/oauth/callback`,
+  the request is rejected with 400.
+- Access token lifetime: 1 hour (default). Refresh token lifetime: 30 days.
 
-## セキュリティ対策
+## Security controls
 
-- **URL バリデーション**: 短縮対象 URL は HTTP(S) のみ許可し、次のホストは拒否:
-  - `localhost`, `*.local`, `*.internal`, `*.localhost`, `*.onion` などの内部 TLD
-  - ループバック (`127.0.0.0/8`, `::1`)
-  - RFC1918 プライベート範囲 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
-  - リンクローカル (`169.254.0.0/16`, `fe80::/10`) ※ クラウドメタデータ `169.254.169.254` を含む
+- **URL validation**: only HTTP(S) URLs are accepted; the following hosts
+  are rejected:
+  - `localhost`, `*.local`, `*.internal`, `*.localhost`, `*.onion` and
+    similar internal TLDs
+  - Loopback (`127.0.0.0/8`, `::1`)
+  - RFC1918 private ranges (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`)
+  - Link-local (`169.254.0.0/16`, `fe80::/10`) — including the cloud
+    metadata address `169.254.169.254`
   - CGNAT (`100.64.0.0/10`)
-  - マルチキャスト (`224.0.0.0/4`) / 予約 (`240.0.0.0/4`)
-  - IPv6 ULA (`fc00::/7`) / マルチキャスト (`ff00::/8`) / IPv4-mapped (`::ffff:*`) / NAT64
-  - 埋め込み認証情報 (`user:pass@host`)
-  - 2048 文字を超える URL
-- **Slug バリデーション**: `/:slug` および Analytics 系エンドポイントで `isValidSlug` を適用。`api`, `mcp` プレフィックスに加え、`health`, `metrics` などの予約パスを禁止。
-- **HTTP セキュリティヘッダー**: 全レスポンスに `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`, `Strict-Transport-Security`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, `Permissions-Policy` を付与。
-- **レート制限**: 信頼できる `cf-connecting-ip` のみをキーに使用（`x-forwarded-for` は受信しない）。
-- **リクエストボディ上限**: `POST /api/links` は 16KiB、`POST /mcp` は 256KiB。
-- **エラーメッセージ**: MCP の内部エラーは `tool execution failed` として外部露出せず、詳細はサーバログのみに出力。
+  - Multicast (`224.0.0.0/4`) and reserved (`240.0.0.0/4`)
+  - IPv6 ULA (`fc00::/7`), multicast (`ff00::/8`), IPv4-mapped (`::ffff:*`),
+    and NAT64
+  - Embedded credentials (`user:pass@host`)
+  - URLs longer than 2048 characters
+- **Slug validation**: `isValidSlug` is applied to `/:slug` and analytics
+  endpoints. The `api` / `mcp` prefixes are rejected, plus reserved
+  well-known paths (`health`, `metrics`, etc.).
+- **HTTP security headers**: every response carries
+  `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`,
+  `Referrer-Policy: no-referrer`, `Strict-Transport-Security`,
+  `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`, and
+  `Permissions-Policy`.
+- **Rate limiting**: keyed only by the trusted `cf-connecting-ip`; the
+  Worker does not honor `x-forwarded-for`.
+- **Request body limits**: `POST /api/links` is capped at 16 KiB; `POST
+  /mcp` at 256 KiB.
+- **Error messages**: internal errors from MCP are surfaced to clients as
+  `tool execution failed`; full details are written to the server log only.
 
-## レート制限
+## Rate limiting
 
-- Worker 組込み (`src/middleware/rate-limit.ts`): `/api/*` と `/mcp`, `/mcp/*` に
-  対して IP 単位、既定 60 秒あたり 120 リクエスト
-- 状態は Worker isolate ごと。グローバルリミットではなく、**isolate に対する
-  バースト防止のセーフティネット**として機能する
-- 超過時は `429 Too Many Requests` を返し、`Retry-After` / `X-RateLimit-Limit`
-  / `X-RateLimit-Remaining` / `X-RateLimit-Reset` を付与する
-- グローバル enforcement は Cloudflare Rate Limiting Rules（ダッシュボード）で
-  行う方針。設定手順は `docs/guide/deploy.md` を参照
+- Built into the Worker (`src/middleware/rate-limit.ts`): per-IP, defaults
+  to 120 requests per 60 seconds for `/api/*` and `/mcp`, `/mcp/*`.
+- State is per-isolate, so this acts as a **burst safety net**, not a
+  global limit.
+- On overflow the Worker returns `429 Too Many Requests` along with
+  `Retry-After`, `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and
+  `X-RateLimit-Reset` headers.
+- Global enforcement is the operator's responsibility via Cloudflare Rate
+  Limiting Rules. Setup is documented in `docs/guide/deploy.md`.
 
-## リクエストフロー
+## Request flow
 
-### リダイレクト
+### Redirect
+
 ```
 GET /:slug
   → caches.default.match(req)
-  → HIT → 302 (cached) + waitUntil(Analytics Engine 書込み)
+  → HIT  → 302 (cached) + waitUntil(Analytics Engine write)
   → MISS → KV.get(slug)
-        → 見つからない → 404
-        → geo なし → 302 + waitUntil(cache.put + Analytics 書込み)
-        → geo あり → request.cf.country でルックアップ、ヒットしなければ
-                     デフォルト URL にフォールバック。`Cache-Control:
-                     private, no-store` を付与しエッジ/ブラウザ共にキャッシュ
-                     させない + waitUntil(Analytics 書込み)
+        → not found → 404
+        → no geo   → 302 + waitUntil(cache.put + Analytics write)
+        → has geo  → look up by request.cf.country; fall back to default
+                     URL if no match. Set `Cache-Control: private, no-store`
+                     so neither edge nor browser caches the response,
+                     plus waitUntil(Analytics write).
 ```
 
-- エッジキャッシュのキーはリクエスト URL のみで国情報を含まないため、geo
-  バリアントを持つリンクはキャッシュに書き込まない。書き込まない以上、ヒット
-  したレスポンスは常に geo 非対応のものと保証できる
-- 非 geo リンクは従来どおり `public, s-maxage=60` で colo キャッシュに載せる
-- Analytics Engine への書込みは `waitUntil()` で非同期。レスポンスレイテンシに影響しない
+- The edge cache key is the full request URL and does not include country,
+  so links with geo variants are intentionally not written to the cache.
+  Because they are never cached, every cache hit is guaranteed to be a
+  non-geo response.
+- Non-geo links are cached at the colo with `public, s-maxage=60`.
+- Analytics Engine writes happen via `waitUntil()`, off the response
+  critical path.
 
-### geo バリアントの注意点
+### Geo-variant caveats
 
-- 国判定は `request.cf.country`（Cloudflare 決定）。VPN・モバイル回線などで
-  実住所と乖離することがある
-- 少数バリアントの想定：すべての国を列挙する必要はなく、出し分けたい国のみ
-  指定してその他はデフォルトにフォールバックする設計
-- Accept-Language ベースの出し分けはランディング側で行う前提。短縮リンク側は
-  国ベースの粗い振り分けに特化
+- Country detection uses `request.cf.country` (Cloudflare's classification).
+  VPNs or carrier-grade NAT may make this drift from the user's actual
+  location.
+- Geo variants are designed for a small number of overrides — only specify
+  the countries you want to handle differently and let everyone else fall
+  back to the default URL.
+- Accept-Language-based variants should be handled on the landing page
+  side. The shortener focuses on coarse country-level routing.
 
-## デプロイ
+## Deployment
 
-- **Deploy to Cloudflare ボタン**: README に配置。ワンクリックで fork + Cloudflare コンソールでのデプロイまで完結
-- **手動**: `wrangler deploy`
-- **CI/CD**: Cloudflare Workers Builds（`main` push をコンソール側で検知して自動デプロイ）。GitHub Actions からの `wrangler deploy` は行わない
-- **ドキュメント**: GitHub Pages (VitePress)
+- **Deploy to Cloudflare button**: shipped in the README. One click forks
+  the repo and walks the user through deployment in the Cloudflare console.
+- **Manual**: `wrangler deploy`.
+- **CI/CD**: Cloudflare Workers Builds picks up pushes to `main` and
+  deploys automatically. The repo does not run `wrangler deploy` from
+  GitHub Actions.
+- **Documentation**: GitHub Pages, built with VitePress.
 
-## プロジェクト構成
+## Project layout
 
 ```
 open-shortlink/
 ├── src/
-│   ├── index.ts              # Hono アプリ エントリポイント
+│   ├── index.ts              # Hono application entrypoint
 │   ├── routes/
 │   │   ├── redirect.ts       # GET /:slug → 302
-│   │   └── api.ts            # REST API (CRUD + 分析)
+│   │   └── api.ts            # REST API (CRUD + analytics)
 │   ├── mcp/
-│   │   └── tools.ts          # MCP ツール定義
+│   │   └── tools.ts          # MCP tool definitions
 │   ├── analytics/
-│   │   ├── tracker.ts        # Analytics Engine 書込み
-│   │   └── ai-detector.ts    # AI User-Agent 判定
+│   │   ├── tracker.ts        # Analytics Engine writes
+│   │   └── ai-detector.ts    # AI User-Agent detection
 │   ├── storage/
-│   │   └── kv.ts             # Cloudflare KV 操作
+│   │   └── kv.ts             # Cloudflare KV access
 │   └── lib/
-│       ├── slug.ts           # NanoID ベース slug 生成
-│       └── validate.ts       # URL バリデーション
-├── docs/                     # VitePress ドキュメント
+│       ├── slug.ts           # NanoID-based slug generation
+│       └── validate.ts       # URL validation
+├── docs/                     # VitePress documentation
 ├── .github/workflows/
-│   └── docs.yml              # ドキュメントデプロイ（Worker のデプロイは Cloudflare Workers Builds 側）
+│   └── docs.yml              # Doc deploys (Worker deploys via Cloudflare Workers Builds)
 ├── wrangler.toml
 ├── package.json
 └── tsconfig.json

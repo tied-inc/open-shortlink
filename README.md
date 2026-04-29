@@ -1,120 +1,115 @@
 # Open Shortlink
 
-オープンソースの URL 短縮サービス。Cloudflare Workers 上で動作し、無料枠の範囲で運用可能。
+> 🇯🇵 [日本語版はこちら / Japanese version](./README.ja.md)
 
-## 特徴
+An open-source URL shortener that runs on Cloudflare Workers. Designed to fit
+inside the free tier for small workloads, and to be operated by AI assistants
+through a built-in Remote MCP server.
 
-- **低コスト運用** — Cloudflare Workers + KV の無料枠で月額 $0 運用が可能
-- **高速リダイレクト** — KV のエッジ読み取りによる低レイテンシ
-- **クリック分析** — Analytics Engine による非同期トラッキング（リファラー、国、時系列、AI アクセス判定）
-- **AI ネイティブ管理** — Remote MCP サーバーとして AI アシスタントから直接操作可能
+## Highlights
 
-詳細は [ドキュメント](https://tied-inc.github.io/open-shortlink/) および [SPEC.md](./SPEC.md) を参照。
+- **Low cost** — runs on Cloudflare Workers + KV; small deployments stay at
+  $0/month.
+- **Fast redirects** — slug → URL lookups served from KV at the edge.
+- **Click analytics** — Cloudflare Analytics Engine tracks referrer, country,
+  time-series, and AI-bot ratio asynchronously (no impact on redirect latency).
+- **AI-native administration** — no web UI; manage links via REST API or as a
+  Remote MCP server that AI assistants (Claude Desktop, Claude Code, etc.)
+  can connect to directly.
+- **Single Worker** — redirect, REST API, MCP server, and OAuth are all served
+  from one Worker.
 
-## セキュリティポリシー（必読）
+See the [documentation site](https://tied-inc.github.io/open-shortlink/) and
+the [specification](./SPEC.md) for full details.
 
-Open Shortlink の API（`/api/*`）と MCP（`/mcp`）は Cloudflare Workers のパブリック URL で公開されるため、**運用者自身が以下を守る責任があります**。
+## Security policy (please read)
 
-- **第一線（必須）**: **OAuth 2.1（PKCE + 動的クライアント登録）** で保護。ユーザー認証は外部 IdP に委任する方式で、**Cloudflare Access** もしくは任意の **OpenID Connect プロバイダ**（Auth0 / Okta / Entra ID / Google Workspace / Keycloak 等）を 1 つだけ設定する。IdP 未設定または allowlist 空の場合、`/authorize` は **503** を返し、`/api/*` と `/mcp` は **401** となる（**fail-closed**）
-- **二線目（推奨）**: Cloudflare Rate Limiting Rules / WAF を `/api/*` と `/mcp` に適用
+The API (`/api/*`) and MCP endpoint (`/mcp`) are reachable on a public
+Cloudflare Workers URL, so **the operator is responsible for keeping them
+locked down**:
 
-詳細・チェックリスト・IdP 設定手順は [セキュリティガイド](https://tied-inc.github.io/open-shortlink/guide/security) を参照してください。
+- **Primary line of defense (required)**: OAuth 2.1 (PKCE + dynamic client
+  registration). User authentication is delegated to an external IdP — choose
+  **either** Cloudflare Access **or** any OpenID Connect provider (Auth0,
+  Okta, Entra ID, Google Workspace, Keycloak, etc.). With no IdP configured
+  or an empty allowlist, `/authorize` returns **503** and `/api/*` and `/mcp`
+  return **401** (fail-closed).
+- **Secondary (recommended)**: apply Cloudflare Rate Limiting Rules and WAF
+  to `/api/*` and `/mcp`.
 
-## 従来サービスとのコスト比較
+For the full checklist and IdP configuration steps, see the
+[Security Guide](https://tied-inc.github.io/open-shortlink/guide/security).
 
-月間クリック数やリンク数の規模ごとに、一般的な商用 URL 短縮サービスと Open Shortlink を比較したものです。料金は各社の公開プランを参考にした概算値（2026 年時点）で、為替は $1 ≒ 150 円で換算しています。
+## Cost comparison with hosted services
 
-### 月額料金の比較
+Estimated monthly cost across common URL-shortener tiers (figures rounded for
+2026; FX assumed at $1 ≈ 150 JPY).
 
-| 規模 | A社<br>（米国大手） | B社<br>（カスタムドメイン特化） | C社<br>（中堅） | D社<br>（新興・開発者向け） | **Open Shortlink** |
+### Monthly price
+
+| Scale | Vendor A<br>(US incumbent) | Vendor B<br>(custom-domain focus) | Vendor C<br>(mid-market) | Vendor D<br>(developer / new) | **Open Shortlink** |
 |---|---|---|---|---|---|
-| **無料枠** | 〜10 リンク / 月 | 〜500 リンク | 〜1,000 クリック / 月 | 〜1,000 リンク | **〜10 万クリック / 日**<br>（Cloudflare 無料枠） |
-| **スターター**<br>(数千クリック) | 約 $8 / 月 | 約 $29 / 月 | 約 $20 / 月 | 約 $24 / 月 | **$0** |
-| **標準**<br>(数万クリック) | 約 $29 / 月 | 約 $69 / 月 | 約 $50 / 月 | 約 $59 / 月 | **$0** |
-| **大規模**<br>(数十万クリック) | 約 $199 / 月 〜 | 約 $499 / 月 〜 | 約 $150 / 月 〜 | 約 $199 / 月 〜 | **$5 前後**<br>（Workers 有料枠） |
-| **エンタープライズ** | 要問合せ<br>(数十万円〜) | 要問合せ | 要問合せ | 要問合せ | 従量課金のまま |
+| **Free tier** | ~10 links / month | ~500 links | ~1,000 clicks / month | ~1,000 links | **~100k clicks / day**<br>(Cloudflare free tier) |
+| **Starter**<br>(thousands of clicks) | ~$8 / mo | ~$29 / mo | ~$20 / mo | ~$24 / mo | **$0** |
+| **Standard**<br>(tens of thousands) | ~$29 / mo | ~$69 / mo | ~$50 / mo | ~$59 / mo | **$0** |
+| **Large**<br>(hundreds of thousands) | from ~$199 / mo | from ~$499 / mo | from ~$150 / mo | from ~$199 / mo | **~$5**<br>(Workers paid tier) |
+| **Enterprise** | contact sales | contact sales | contact sales | contact sales | usage-based, same model |
 
-### 機能比較
+### Feature comparison
 
-| 機能 | A社 | B社 | C社 | D社 | **Open Shortlink** |
+| Feature | A | B | C | D | **Open Shortlink** |
 |---|---|---|---|---|---|
-| カスタムドメイン | 有料プラン | ◎（主力） | 有料プラン | ○ | ○（Cloudflare 設定） |
-| クリック分析 | ○ | ○ | ○ | ○ | ○ |
-| リファラー / 国別分析 | 上位プラン | 上位プラン | ○ | ○ | ○ |
-| API アクセス | 上位プラン | 上位プラン | ○ | ○ | ○（標準） |
-| 有効期限 | ○ | ○ | ○ | ○ | ○ |
-| **AI アクセス判定** | × | × | × | △ | **◎（標準搭載）** |
-| **MCP サーバー** | × | × | × | × | **◎（Remote MCP 内蔵）** |
-| セルフホスト | × | × | × | × | ◎ |
-| データ所有権 | ベンダー | ベンダー | ベンダー | ベンダー | **自分のアカウント** |
+| Custom domain | Paid plan | ◎ (core) | Paid plan | ○ | ○ (Cloudflare config) |
+| Click analytics | ○ | ○ | ○ | ○ | ○ |
+| Referrer / country breakdown | Higher tiers | Higher tiers | ○ | ○ | ○ |
+| API access | Higher tiers | Higher tiers | ○ | ○ | ○ (default) |
+| Expiration | ○ | ○ | ○ | ○ | ○ |
+| **AI-traffic detection** | ✕ | ✕ | ✕ | △ | **◎ (built in)** |
+| **MCP server** | ✕ | ✕ | ✕ | ✕ | **◎ (built in)** |
+| Self-hosting | ✕ | ✕ | ✕ | ✕ | ◎ |
+| Data ownership | Vendor | Vendor | Vendor | Vendor | **Your Cloudflare account** |
 
-### コスト構造の違い
+### Cost-curve shape
 
-商用サービスは月間クリック数やリンク数に応じて段階的に料金が上がります。Open Shortlink は Cloudflare の従量課金モデルのため、無料枠を超えた後も極めて低コストで運用できます。
-
-| 月間クリック数 | 商用サービス（標準プラン） | Open Shortlink |
+| Monthly clicks | Hosted (standard plan) | Open Shortlink |
 |---|---|---|
-| 10 万 | 約 $20〜50 | **$0**（無料枠内） |
-| 100 万 | 約 $50〜100 | **$0〜2**（Workers のみ従量） |
-| 1,000 万 | 約 $200〜500 | **$5〜15** |
+| 100k | ~$20–50 | **$0** (free tier) |
+| 1M | ~$50–100 | **$0–2** (Workers metered only) |
+| 10M | ~$200–500 | **$5–15** |
 
-### Open Shortlink を選ぶ理由
+### Why pick Open Shortlink
 
-- **圧倒的な低コスト** — 個人〜中規模チームなら月額 $0 から
-- **データ主権** — すべてのデータが自分の Cloudflare アカウント内
-- **AI 時代対応** — AI ボットからのアクセス可視化と MCP による AI 管理
-- **ロックインなし** — OSS なので fork 可能、移行も容易
+- **Lowest TCO** for individual / small-team use — zero dollars at startup.
+- **Data sovereignty** — every record lives in your own Cloudflare account.
+- **AI-era ready** — visibility into AI-bot traffic and management via MCP.
+- **No lock-in** — MIT-licensed, fork-friendly, easy to migrate away from.
 
-> 料金・機能は各社の公開情報に基づく概算です。正確な最新情報は各サービスの公式サイトをご確認ください。
+> Pricing and features above are estimates from public information. Confirm
+> the current numbers with each vendor before relying on them.
 
-## Cloudflare へのデプロイ
-
-### 1 クリックデプロイ（推奨）
-
-下のボタンを押すと、Cloudflare 側で fork → KV 自動作成 → Worker デプロイ → Secret 登録までが一気通貫で完了します。
-
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/tied-inc/open-shortlink)
-
-事前にダッシュボードで Analytics Engine データセット **`open_shortlink_clicks`** を 1 つ作成しておく必要があります（同一アカウントでの 2 回目以降は不要）。詳しい手順とトラブルシュートは [デプロイガイド](https://tied-inc.github.io/open-shortlink/guide/deploy) を参照。
-
-### 手動デプロイ
-
-```bash
-git clone https://github.com/tied-inc/open-shortlink.git
-cd open-shortlink
-bun install
-wrangler login
-
-# IdP を 1 つ設定（OIDC か Cloudflare Access のどちらか・両方は不可）
-wrangler secret put OIDC_ISSUER
-wrangler secret put OIDC_CLIENT_ID
-wrangler secret put OIDC_CLIENT_SECRET
-wrangler secret put OIDC_ALLOWED_SUBS
-
-bun run deploy
-```
-
-KV 名前空間（`SHORTLINKS` / `OAUTH_KV`）は初回 `wrangler deploy` 時に自動作成されます。カスタムドメイン、リダイレクト/API ホスト分離、Rate Limiting Rules、Workers Builds による継続デプロイなどの詳細は [デプロイガイド](https://tied-inc.github.io/open-shortlink/guide/deploy) を参照してください。
-
-> ⚠️ **fail-closed**: IdP（OIDC か Cloudflare Access）が未設定または allowlist 空の場合、`/authorize` は **503**、`/api/*` と `/mcp` は **401** を返します。デプロイ前に必ず [セキュリティガイド](https://tied-inc.github.io/open-shortlink/guide/security) を確認してください。
-
-## 開発
+## Development
 
 ```bash
 bun install
-bun run dev          # ローカル開発サーバー (wrangler dev)
-bun test             # テスト実行
-bun run typecheck    # 型チェック
-bun run deploy       # Cloudflare にデプロイ
+bun run dev          # local dev server (wrangler dev)
+bun test             # run tests
+bun run typecheck    # TypeScript check
+bun run deploy       # deploy to Cloudflare
 ```
 
-### ドキュメントサイト
+### Documentation site
 
 ```bash
-bun run docs:dev     # VitePress 開発サーバー
-bun run docs:build   # 本番ビルド
+bun run docs:dev     # VitePress dev server
+bun run docs:build   # production build
 ```
 
-## ライセンス
+## Contributing
 
-MIT
+Issues and pull requests are welcome. Please read
+[CONTRIBUTING.md](./CONTRIBUTING.md) before opening a PR, and use the
+[security reporting flow](./SECURITY.md) for vulnerability disclosures.
+
+## License
+
+[MIT](./LICENSE)
