@@ -98,3 +98,10 @@ jobs:
             args+=(--prerelease)
           fi
           gh "${args[@]}"
+
+  sync-release-docs:
+    needs: release
+    uses: ./.github/workflows/update-release-docs.yml
+    permissions:
+      contents: write
+      actions: write
