@@ -5,7 +5,7 @@ description: Open Shortlink の MCP ツールで短縮 URL を作成・管理し
 
 # Open Shortlink スキル
 
-Open Shortlink は Cloudflare Workers 上で動く URL 短縮サービスで、Remote MCP サーバーを内蔵している。このスキルは `shortlink` MCP サーバーが提供する 7 つのツールを正しく使い分けるための指針をまとめたもの。
+Open Shortlink は Cloudflare Workers 上で動く URL 短縮サービスで、Remote MCP サーバーを内蔵している。このスキルは `shortlink` MCP サーバーが提供する 8 つのツールを正しく使い分けるための指針をまとめたもの。
 
 ## 前提
 
@@ -22,6 +22,7 @@ Open Shortlink は Cloudflare Workers 上で動く URL 短縮サービスで、R
 | 特定 slug の詳細を確認 | `get_link` |
 | リンクを削除 | `delete_link` |
 | 特定 slug のクリック統計（国/リファラー/AI 比） | `get_analytics` |
+| 特定 slug のクリック時系列 | `get_timeseries` |
 | 期間内のクリック数ランキング | `get_top_links` |
 | サイト全体の AI ボット比率とボット別内訳 | `get_ai_stats` |
 
@@ -65,6 +66,16 @@ Open Shortlink は Cloudflare Workers 上で動く URL 短縮サービスで、R
 - `topCountries`: 上位国コード（`country` + `clicks`）
 
 ユーザーに見せるときは数値を羅列するのではなく、**目立つ変化や偏り**に触れる（例: 「AI 比率が 30% と高め」「JP と US で 70% を占める」）。
+
+### `get_timeseries`
+
+特定 slug のクリック数を時系列で返す。`period`（`1d` / `7d` / `30d` /
+`90d`）と `interval`（`1h` または `1d`）を渡す。`1h` は短い `period`
+（`1d` または `7d`）と組み合わせる用途を想定 — 長い `period` × `1h` は
+レスポンスが巨大になる。
+
+返り値は `data: [{ timestamp, clicks, aiClicks }]`。推移をユーザーに
+見せるときは全バケットを読み上げず、**ピークや谷**にフォーカスする。
 
 ### `get_top_links`
 

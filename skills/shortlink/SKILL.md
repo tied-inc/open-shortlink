@@ -7,7 +7,7 @@ description: Use the Open Shortlink MCP tools to create and manage shortened URL
 
 Open Shortlink is a URL shortener that runs on Cloudflare Workers and embeds
 a Remote MCP server. This skill is a guide for picking the right tool from
-the seven exposed by the `shortlink` MCP server.
+the eight exposed by the `shortlink` MCP server.
 
 ## Prerequisites
 
@@ -30,6 +30,7 @@ the seven exposed by the `shortlink` MCP server.
 | Inspect a specific slug | `get_link` |
 | Delete a link | `delete_link` |
 | Per-slug click stats (country / referrer / AI ratio) | `get_analytics` |
+| Time-series click data for a slug | `get_timeseries` |
 | Click-count ranking over a period | `get_top_links` |
 | Site-wide AI-bot ratio and per-bot breakdown | `get_ai_stats` |
 
@@ -88,6 +89,17 @@ The response includes:
 When summarizing for the user, don't just dump the numbers — call out
 **notable patterns or skews** (e.g. "AI traffic is unusually high at 30%",
 "JP and US together account for 70%").
+
+### `get_timeseries`
+
+Returns a time-series of clicks for a single slug. Pass `period` (`1d` /
+`7d` / `30d` / `90d`) and `interval` (`1h` or `1d`). Use `1h` only with
+short windows (`1d` or `7d`) — pairing a long period with a 1-hour
+interval produces a very large response.
+
+The response is `data: [{ timestamp, clicks, aiClicks }]`. When showing
+trends to the user, summarize peaks and slumps rather than reading off
+every bucket.
 
 ### `get_top_links`
 
