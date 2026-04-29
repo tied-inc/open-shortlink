@@ -22,93 +22,122 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Generate docs/releases.md
+      - name: Generate docs/releases.md and docs/en/releases.md
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
 
-          target=docs/releases.md
-          tmp=$(mktemp)
+          generate() {
+            local lang="$1"
+            local target="$2"
+            local tmp
+            tmp=$(mktemp)
 
-          {
-            echo "# リリースノート"
-            echo ""
-            echo "このページは GitHub Releases から自動生成されます。リリースが公開・編集・削除されると \`.github/workflows/update-release-docs.yml\` が \`docs/releases.md\` を更新します。"
-            echo ""
-            echo "最新のリリースは [GitHub Releases](https://github.com/${REPO}/releases) でも確認できます。"
-            echo ""
-            echo "<!-- RELEASES:START -->"
+            {
+              if [ "$lang" = "ja" ]; then
+                echo "# リリースノート"
+                echo ""
+                echo "このページは GitHub Releases から自動生成されます。リリースが公開・編集・削除されると \`.github/workflows/update-release-docs.yml\` が \`docs/releases.md\` を更新します。"
+                echo ""
+                echo "最新のリリースは [GitHub Releases](https://github.com/${REPO}/releases) でも確認できます。"
+              else
+                echo "# Release Notes"
+                echo ""
+                echo "This page is automatically generated from GitHub Releases. When a release is published, edited, or deleted, \`.github/workflows/update-release-docs.yml\` updates \`docs/en/releases.md\`."
+                echo ""
+                echo "You can also see the latest releases on [GitHub Releases](https://github.com/${REPO}/releases)."
+              fi
+              echo ""
+              echo "<!-- RELEASES:START -->"
 
-            releases_json=$(gh api --paginate "repos/${REPO}/releases")
-            count=$(echo "$releases_json" | jq '[.[] | select(.draft == false)] | length')
+              releases_json=$(gh api --paginate "repos/${REPO}/releases")
+              count=$(echo "$releases_json" | jq '[.[] | select(.draft == false)] | length')
 
-            if [ "$count" -eq 0 ]; then
-              echo "まだリリースはありません。"
-            else
-              echo "$releases_json" | jq -r '
-                [.[] | select(.draft == false)]
-                | sort_by(.published_at) | reverse
-                | .[]
-                | "::RELEASE::",
-                  (.name // .tag_name),
-                  .tag_name,
-                  .html_url,
-                  (.published_at // ""),
-                  (if .prerelease then "true" else "false" end),
-                  "::BODY::",
-                  (.body // ""),
-                  "::END::"
-              ' | awk '
-                BEGIN { state = 0 }
-                /^::RELEASE::$/ { state = 1; next }
-                state == 1 { name = $0; state = 2; next }
-                state == 2 { tag = $0; state = 3; next }
-                state == 3 { url = $0; state = 4; next }
-                state == 4 { published = $0; state = 5; next }
-                state == 5 { prerelease = $0; state = 6; next }
-                /^::BODY::$/ { state = 7; body = ""; next }
-                /^::END::$/ {
-                  printf "\n## %s\n\n", name
-                  printf "- タグ: [`%s`](%s)\n", tag, url
-                  if (published != "") {
-                    printf "- 公開日時: `%s`\n", published
-                  }
-                  if (prerelease == "true") {
-                    printf "- 種別: Pre-release\n"
-                  }
-                  printf "\n"
-                  if (body != "") {
-                    print body
+              if [ "$count" -eq 0 ]; then
+                if [ "$lang" = "ja" ]; then
+                  echo "まだリリースはありません。"
+                else
+                  echo "No releases yet."
+                fi
+              else
+                echo "$releases_json" | jq -r '
+                  [.[] | select(.draft == false)]
+                  | sort_by(.published_at) | reverse
+                  | .[]
+                  | "::RELEASE::",
+                    (.name // .tag_name),
+                    .tag_name,
+                    .html_url,
+                    (.published_at // ""),
+                    (if .prerelease then "true" else "false" end),
+                    "::BODY::",
+                    (.body // ""),
+                    "::END::"
+                ' | awk -v lang="$lang" '
+                  BEGIN { state = 0 }
+                  /^::RELEASE::$/ { state = 1; next }
+                  state == 1 { name = $0; state = 2; next }
+                  state == 2 { tag = $0; state = 3; next }
+                  state == 3 { url = $0; state = 4; next }
+                  state == 4 { published = $0; state = 5; next }
+                  state == 5 { prerelease = $0; state = 6; next }
+                  /^::BODY::$/ { state = 7; body = ""; next }
+                  /^::END::$/ {
+                    printf "\n## %s\n\n", name
+                    if (lang == "ja") {
+                      printf "- タグ: [`%s`](%s)\n", tag, url
+                      if (published != "") {
+                        printf "- 公開日時: `%s`\n", published
+                      }
+                      if (prerelease == "true") {
+                        printf "- 種別: Pre-release\n"
+                      }
+                    } else {
+                      printf "- Tag: [`%s`](%s)\n", tag, url
+                      if (published != "") {
+                        printf "- Published: `%s`\n", published
+                      }
+                      if (prerelease == "true") {
+                        printf "- Type: Pre-release\n"
+                      }
+                    }
                     printf "\n"
+                    if (body != "") {
+                      print body
+                      printf "\n"
+                    }
+                    state = 0
+                    next
                   }
-                  state = 0
-                  next
-                }
-                state == 7 {
-                  if (body == "") { body = $0 } else { body = body "\n" $0 }
-                }
-              '
-            fi
+                  state == 7 {
+                    if (body == "") { body = $0 } else { body = body "\n" $0 }
+                  }
+                '
+              fi
 
-            echo "<!-- RELEASES:END -->"
-          } > "$tmp"
+              echo "<!-- RELEASES:END -->"
+            } > "$tmp"
 
-          mv "$tmp" "$target"
+            mv "$tmp" "$target"
+          }
+
+          generate ja docs/releases.md
+          generate en docs/en/releases.md
 
       - name: Commit and push if changed
         id: commit
         run: |
           set -euo pipefail
-          if git diff --quiet docs/releases.md; then
+          if git diff --quiet docs/releases.md docs/en/releases.md; then
             echo "changed=false" >> "$GITHUB_OUTPUT"
-            echo "No changes to docs/releases.md"
+            echo "No changes to release docs"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/releases.md
+          git add docs/releases.md docs/en/releases.md
           git commit -m "docs: sync release notes from GitHub Releases"
           git push origin main
           echo "changed=true" >> "$GITHUB_OUTPUT"
