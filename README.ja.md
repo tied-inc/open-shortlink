@@ -11,7 +11,7 @@
 - **クリック分析** — Analytics Engine による非同期トラッキング（リファラー、国、時系列、AI アクセス判定）
 - **AI ネイティブ管理** — Remote MCP サーバーとして AI アシスタントから直接操作可能
 
-詳細は [ドキュメント](https://tied-inc.github.io/open-shortlink/) および [SPEC.md](./SPEC.md) を参照。
+詳細は [ドキュメント](https://tied-inc.github.io/open-shortlink/) および [SPEC.md](./SPEC.ja.md) を参照。
 
 ## セキュリティポリシー（必読）
 
